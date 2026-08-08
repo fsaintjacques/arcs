@@ -14,11 +14,12 @@ space, and the agent API are all independent of these values.
 | 1 | Ambition marker reverse sides | `src/engine/ambitions.ts` | medium — one of three confirmed |
 | 2 | Map planet types, slots, adjacency | `src/engine/map.ts` | low — structurally faithful, layout invented |
 | 3 | Setup cards | `src/engine/setup.ts` | low — generated symmetrically, not the printed 12 |
-| 4 | Guild / Vox card texts | `src/engine/court.ts` | none — shipped as vanilla cards |
+| 4 | Guild / Vox ability *dispatch* | `src/engine/court.ts` | card data is exact; abilities not yet acted on |
 | 5 | Player board economy | `src/engine/playerBoard.ts` | low |
 
-**Closed:** battle die faces. The official aid booklet (p3) prints all six faces
-of each die, so `src/engine/dice.ts` is now exact rather than inferred.
+**Closed:** battle die faces (official aid booklet p3 prints all six faces of
+each die) and the Court card data (names, suits, raid costs and verbatim text
+for all 31 cards).
 
 ---
 
@@ -76,24 +77,39 @@ setup rule the rulebook does state:
 still vary. To use the printed cards instead, replace `generateSetup()` with a
 literal table of the 12 setups.
 
-## 4. Guild and Vox card texts
+## 4. Guild and Vox card abilities
 
-The 25 Guild and 6 Vox cards each carry bespoke rules text; none of it is in the
-rulebook or the aid booklet. The engine ships the Court as a **structurally
-complete but mechanically vanilla** deck:
+**The card data is no longer a gap.** All 31 cards — name, suit, raid cost and
+verbatim rules text — are transcribed from card images in `court.ts`. The
+printed numbers run 01–25 Guild and 26–31 Vox; seven of those numbers are
+legible in the rulebook itself (01 Loyal Engineers, 03 Material Cartel, 04
+Admin Union, 09 Shipping Interest, 11 Arms Union, 15 Loyal Marines, 18 Secret
+Order) and all seven agree with the transcription, which pins the ordering.
 
-- 25 Guild cards with a suit (one of the 5 resource types) and a raid cost, so
-  influencing, securing, raiding, Outrage discards and the Tycoon / Keeper /
-  Empath ambition counts all work exactly as written;
-- 6 Vox cards that resolve immediately on being secured and are discarded.
+What remains is **dispatching the abilities**. Each card's power is encoded in
+a typed `CardPower` / `VoxEffect` so the engine can act on it, but the
+dispatch is not written yet. `IMPLEMENTED_POWERS` in `court.ts` lists what is
+wired up and `UNIMPLEMENTED_POWERS` is its complement; a test asserts the two
+account for every card carrying an ability, so this document cannot drift.
 
-What is missing is only the per-card *special powers* (new actions, modifiers,
-Prelude abilities). `court.ts` defines a `CourtCardDef` with an optional
-`whenSecured` hook and the engine dispatches it, so adding the real cards is a
-data exercise.
+Everything else about every card already works exactly as printed: suit counts
+toward Tycoon / Keeper / Empath, Weapon cards count toward nothing, raid costs
+gate what an attacker can steal, and Outrage discards cards by suit.
 
-**This is the largest remaining gap.** Guild card powers are a real part of
-base-game strategy, so bot results from this engine describe a simplified Arcs.
+The abilities fall into the three kinds the rulebook names (p20):
+
+| kind | cards | example |
+|---|---|---|
+| `Prelude:` abilities | 13 | *Silver-Tongues* — discard to steal a Guild card or resource |
+| new actions `Name (Standard):` | 5 cards, 6 actions | *Prison Wardens* — Pressgang (Build), Execute (Influence) |
+| passive modifiers | 17 | *Gatekeepers* — collect 2 more dice when battling in a gate |
+| Vox `When Secured:` | 6 | *Populist Demands* — declare any ambition |
+
+(Cards can appear in more than one row.)
+
+Until the dispatch lands, bot results still describe a simplified Arcs: the
+Court is worth its ambition icons and nothing more, so bots under-value
+Influence and Secure relative to the real game.
 
 ## 5. Player board economy
 

@@ -853,7 +853,7 @@ function secureCard(
   courtSlot.agents[player] = 0;
 
   if (card.kind === 'vox' || card.discardOnSecure) {
-    card.whenSecured?.({ state: s, variant: v, player, rng: () => 0 });
+    // Vox abilities are not yet dispatched — see UNIMPLEMENTED_POWERS in court.ts.
     s.courtDiscard.push(courtSlot.card);
   } else {
     s.playerStates[player].guildCards.push(courtSlot.card);

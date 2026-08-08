@@ -29,10 +29,12 @@ Leaders & Lore and the Blighted Reach campaign are out of scope. Two things
 inside the base game are not fully modelled, both because the data lives on the
 physical components rather than in the rulebook:
 
-- **Guild and Vox card powers.** The Court is structurally complete — influence,
-  secure, raid, Outrage discards and the Tycoon / Keeper / Empath counts are all
-  exact — but no card grants a special ability. This is the biggest gap and it
-  means bot results describe a simplified Arcs.
+- **Guild and Vox card abilities.** All 31 cards are present with their real
+  names, suits, raid costs and printed text, so influence, secure, raid, Outrage
+  discards and the Tycoon / Keeper / Empath counts are exact — but the printed
+  *abilities* are not dispatched yet. `IMPLEMENTED_POWERS` in `court.ts` tracks
+  what is wired up, and a test keeps that list honest. Until it is complete,
+  bots under-value the Court.
 - **The printed map and setup cards.** The map is structurally faithful
   (6 clusters, 1 gate + 3 planets, ring adjacency, out-of-play clusters and path
   markers) but the planet-type layout is invented, and setups are generated
@@ -162,8 +164,9 @@ comparison in this README wrong.
 
 ## Results
 
-Modest batches, and the caveats above apply — Guild card powers are missing and
-the map is not the printed one, so these describe *this engine's* Arcs.
+Modest batches, and the caveats above apply — Guild card abilities are not
+dispatched yet and the map is not the printed one, so these describe *this
+engine's* Arcs.
 
 Two players:
 

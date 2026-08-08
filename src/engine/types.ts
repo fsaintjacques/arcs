@@ -83,27 +83,26 @@ export interface ActionCardDef {
 
 export interface CourtCardDef {
   id: number;
+  /** The number printed on the card: 01-25 Guild, 26-31 Vox. */
+  number: number;
   name: string;
   kind: 'guild' | 'vox';
   /** Guild cards only: counts toward ambitions exactly like a resource token. */
   suit: ResourceType | null;
   /** Keys an attacker must spend to steal this card in a raid. */
   raidCost: number;
+  /** The card's printed rules text, verbatim. */
+  text: string;
   /**
-   * Hooks for card powers. The base deck ships vanilla (see docs/DATA-GAPS.md);
-   * adding the printed cards is a data exercise, not an engine change.
+   * Engine-readable form of a Guild card's ability. `undefined` means the card
+   * has no printed ability; see `UNIMPLEMENTED_POWERS` in court.ts for the ones
+   * the engine does not yet act on.
    */
-  whenSecured?: (ctx: EffectCtx) => void;
+  power?: import('./court').CardPower;
+  /** Vox cards only: what resolves when the card is secured. */
+  vox?: import('./court').VoxEffect;
   /** Vox cards resolve and are discarded rather than kept. */
   discardOnSecure?: boolean;
-}
-
-/** Narrow surface a Court card power gets, so card data cannot reach the UI. */
-export interface EffectCtx {
-  state: GameState;
-  variant: VariantDef;
-  player: number;
-  rng: RNG;
 }
 
 /** One face of a battle die. */

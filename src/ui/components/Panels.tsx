@@ -84,10 +84,10 @@ export function Court({ state }: { state: GameState }) {
         {state.court.map((slot, i) => {
           const card = courtCard(slot.card);
           return (
-            <div key={i} className="court-card">
+            <div key={i} className="court-card" title={card.text}>
               <div className="court-name">{card.name}</div>
               <div className="court-meta">
-                {card.suit ? RESOURCE_ICON[card.suit] : '☰'} · raid {card.raidCost}
+                {card.suit ? `${RESOURCE_ICON[card.suit]} · raid ${card.raidCost}` : 'Vox'}
               </div>
               <div className="agents">
                 {slot.agents.map((n, p) =>

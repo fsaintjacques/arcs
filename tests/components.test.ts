@@ -8,6 +8,7 @@ import {
   CLUSTER_COUNT,
   COURT_DECK,
   DIE_FACES,
+  IMPLEMENTED_POWERS,
   PIPS_BY_NUMBER,
   RAID_FACES,
   SKIRMISH_FACES,
@@ -19,6 +20,8 @@ import {
   makeVariant,
   planetId,
   resolveAdjacency,
+  RESOURCE_TYPES,
+  UNIMPLEMENTED_POWERS,
 } from '../src/engine';
 
 describe('map', () => {
@@ -143,10 +146,64 @@ describe('court deck', () => {
     expect(COURT_DECK.filter((c) => c.kind === 'vox')).toHaveLength(6);
   });
 
-  it('gives every Guild card a resource suit and a raid cost (p17)', () => {
+  it('numbers the cards 01-25 Guild then 26-31 Vox', () => {
+    COURT_DECK.forEach((c, i) => {
+      expect(c.id).toBe(i);
+      expect(c.number).toBe(i + 1);
+    });
+    // The numbers legible in the rulebook itself pin the ordering.
+    const byNumber = (n: number) => COURT_DECK.find((c) => c.number === n)!.name;
+    expect(byNumber(1)).toBe('Loyal Engineers');
+    expect(byNumber(3)).toBe('Material Cartel');
+    expect(byNumber(4)).toBe('Admin Union');
+    expect(byNumber(9)).toBe('Shipping Interest');
+    expect(byNumber(11)).toBe('Arms Union');
+    expect(byNumber(15)).toBe('Loyal Marines');
+    expect(byNumber(18)).toBe('Secret Order');
+  });
+
+  it('gives every Guild card a resource suit, a raid cost and printed text', () => {
     for (const c of COURT_DECK.filter((x) => x.kind === 'guild')) {
       expect(c.suit).not.toBeNull();
-      expect(c.raidCost).toBeGreaterThan(0);
+      expect(c.raidCost).toBeGreaterThanOrEqual(1);
+      expect(c.raidCost).toBeLessThanOrEqual(3);
+      expect(c.text.length).toBeGreaterThan(10);
+    }
+  });
+
+  it('spreads the Guild suits evenly, 5 of each', () => {
+    for (const suit of RESOURCE_TYPES) {
+      expect(COURT_DECK.filter((c) => c.suit === suit)).toHaveLength(5);
+    }
+  });
+
+  it('charges 3 keys for the Loyal cards and 1 for the two cheapest', () => {
+    const cost = (name: string) => COURT_DECK.find((c) => c.name === name)!.raidCost;
+    for (const n of ['Loyal Engineers', 'Loyal Pilots', 'Loyal Marines', 'Loyal Empaths', 'Loyal Keepers']) {
+      expect(cost(n), n).toBe(3);
+    }
+    expect(cost('Sworn Guardians')).toBe(1);
+    expect(cost('Galactic Bards')).toBe(1);
+  });
+
+  it('gives every Vox card a When Secured effect and no suit', () => {
+    for (const c of COURT_DECK.filter((x) => x.kind === 'vox')) {
+      expect(c.suit).toBeNull();
+      expect(c.vox).toBeDefined();
+      expect(c.discardOnSecure).toBe(true);
+    }
+  });
+
+  it('tracks honestly which printed abilities the engine dispatches', () => {
+    // Every card carrying an ability is either implemented or listed as not.
+    const withAbility = COURT_DECK.filter((c) => c.power || c.vox).map((c) => c.name);
+    for (const name of withAbility) {
+      const known = IMPLEMENTED_POWERS.has(name) || UNIMPLEMENTED_POWERS.includes(name);
+      expect(known, name).toBe(true);
+    }
+    // And nothing is claimed as implemented without being a real card.
+    for (const name of IMPLEMENTED_POWERS) {
+      expect(withAbility, name).toContain(name);
     }
   });
 });
