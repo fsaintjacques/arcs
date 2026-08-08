@@ -144,6 +144,45 @@ export const RESOURCE_COLOR: Record<ResourceType, string> = {
 };
 
 /**
+ * A ship, in the printed game's swept-wing silhouette.
+ *
+ * Fresh ships stand upright; damaged ones are **tipped over** (p12), which is
+ * the whole of the distinction on the table, so it is the whole of it here: the
+ * same glyph laid on its side and dimmed. Nothing else marks damage, because
+ * nothing else marks it on the board — and a damaged ship is one hit from being
+ * destroyed, so the difference has to read at a glance.
+ */
+export function Ship({
+  x,
+  y,
+  size = 14,
+  color,
+  damaged,
+}: {
+  x: number;
+  y: number;
+  size?: number;
+  color: string;
+  damaged?: boolean;
+}) {
+  const s = size / 14;
+  return (
+    <g
+      transform={`translate(${x} ${y}) rotate(${damaged ? 74 : 0}) scale(${s})`}
+      opacity={damaged ? 0.72 : 1}
+    >
+      <path
+        d="M0 -7 L4.6 3.2 L1.7 1.6 L1.7 6.4 L-1.7 6.4 L-1.7 1.6 L-4.6 3.2 Z"
+        fill={color}
+        stroke="#0b0d12"
+        strokeWidth={damaged ? 1 : 0.7}
+        strokeLinejoin="round"
+      />
+    </g>
+  );
+}
+
+/**
  * A building slot, as printed on every planet: an outlined triangle, filled by
  * the owner's colour once built.
  */

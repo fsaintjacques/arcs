@@ -12,15 +12,14 @@ space, and the agent API are all independent of these values.
 | # | Datum | Module | Confidence |
 |---|---|---|---|
 | 1 | Ambition marker reverse sides | `src/engine/ambitions.ts` | medium — one of three confirmed |
-| 2 | Intra-cluster planet adjacency | `src/engine/map.ts` | medium — types and slots now read off the board; which pair a thick border splits is not |
-| 3 | Setup cards | `src/engine/setup.ts` | low — a balance-scored deck of 4 per count, not the printed 12 |
-| 4 | Player board economy | `src/engine/playerBoard.ts` | low |
+| 2 | Setup cards | `src/engine/setup.ts` | low — a balance-scored deck of 4 per count, not the printed 12 |
+| 3 | Player board economy | `src/engine/playerBoard.ts` | low |
 
 **Closed:** battle die faces (official aid booklet p3 prints all six faces of
 each die), the Court card data (names, suits, raid costs and verbatim text for
-all 31 cards), the map's **planet types and building-slot counts** transcribed
-from the printed board, and — as of this pass — **every Court card ability**,
-all 31 now dispatched.
+all 31 cards), **every Court card ability**, all 31 now dispatched, and — as of
+this pass — **the map**, in full: planet types, building-slot counts and every
+one of the 18 borders round the planet ring.
 
 ---
 
@@ -43,20 +42,15 @@ chapter 2 and 5/3 after chapter 3.
 
 To correct: edit `AMBITION_MARKERS` in `ambitions.ts`.
 
-## 2. Map layout
+## Closed: the map
 
-**Faithful**: 6 clusters, each 1 gate + 3 planets; gates form a ring; every gate
-adjacent to its 3 planets and its 2 neighbouring gates; planets adjacent to
-their gate; out-of-play clusters and path markers. And, since the transcription
-below, **which planet type sits in which of the 18 slots and how many building
-slots each planet has**.
+Nothing about the map is reconstructed any more. 6 clusters of 1 gate + 3
+planets, the gate ring, out-of-play clusters and path markers all come straight
+from the rules; the planet types and building-slot counts are transcribed from
+the printed board; and the 18 borders round the planet ring are transcribed from
+the setup cards.
 
-**Still reconstructed**: which intra-cluster planet pair is separated by a thick
-border. The engine models each cluster's planets as a path — planet 1–2 and 2–3
-adjacent, 1–3 not — which satisfies "adjacent to one or both neighbouring
-planets" (p6) but is a uniform assumption rather than a per-cluster reading.
-
-### The transcription
+### The planet transcription
 
 Source: the **high-resolution base rulebook** (27 MB, as shipped in the
 ArcsFates repo — not the 5 MB web copy) prints the full board on page 4.
@@ -99,6 +93,51 @@ photographed board rather than the PDF.
 
 To correct: edit `CLUSTERS` in `map.ts` — each entry lists its 3 planets as
 `{ type, slots }`.
+
+### The border transcription
+
+The 18 planets are a **ring**, not six separate rows, so a cluster boundary is
+just another border between two planets. The rulebook is explicit that this is
+what decides adjacency — "A system is adjacent to other systems sharing a thin
+border… Planets separated by a thick, irregular border are not adjacent" (p6) —
+and it never says a planet's neighbours have to be in its own cluster.
+
+The planet art on the printed board makes the borders hard to trace, but the
+**setup cards draw the same map schematically** with nothing else on it. Taking
+the pixel-wise **median of all 12** erases each card's own labels and
+out-of-play shading and leaves the bare border drawing:
+
+```bash
+convert piece_*.jpg -evaluate-sequence median median.png
+```
+
+Scanning circles around the map centre and measuring each radial border's width
+and how far it wanders in angle separates them into three clean tiers:
+
+| tier | count | width at r=220px | angular wander | reading |
+|---|---|---|---|---|
+| intra-cluster | 12 | 5.0–6.8 px | 0.09–1.05° | thin — adjacent |
+| cluster outline | 2 | 10.0, 11.1 px | 0.11°, 0.34° | thin — adjacent |
+| hand-drawn | 4 | 20.2–24.5 px | 0.52–0.89° | thick, irregular — **not** adjacent |
+
+So **four** of the six cluster boundaries carry the thick irregular border and
+**two** do not. The two that don't are drawn dead straight, only a little
+heavier than the rest — a heavier cluster outline, not the irregular border,
+which is unmistakable at 4× the width. The joins are:
+
+- **2.3 – 3.1**
+- **5.3 – 6.1**
+
+Three things agree on the orientation: the top sector of the median schematic
+sits at ~11° clockwise of vertical, the printed board's gate "1" sits at ~11.7°,
+and gate numbering runs clockwise on both. The cluster boundaries then fall at
+52°, 97°, 147°, 231°, 276° and 331°, and the two thin ones are 97° (2|3) and
+276° (5|6).
+
+Within a cluster all 12 borders are thin, so each cluster's planets are a path
+(1–2 and 2–3 adjacent, 1–3 not) — which is what the engine already assumed.
+
+To correct: edit `JOINED_BOUNDARIES` in `map.ts`.
 
 ## Closed: the Court
 
@@ -149,7 +188,7 @@ now part of the state rather than bolted onto a card:
 Three of those raised questions the cards do not answer; all three are recorded
 as [engine rulings](RULES.md#11-engine-rulings).
 
-## 3. Setup cards
+## 2. Setup cards
 
 The box has 12 setup cards — 4 each for 2, 3 and 4 players — and their contents
 are not in the rulebook. `SETUP_DECK` in `setup.ts` holds a reconstructed deck of
@@ -204,7 +243,7 @@ reconstruction follows that.
 
 To use the printed cards, replace `SETUP_DECK` with the real 12.
 
-## 4. Player board economy
+## 3. Player board economy
 
 Reconstructed: 5 city slots and 6 resource slots with raid costs
 `[1, 1, 2, 2, 3, 3]`; three resource slots open at setup (covering the two

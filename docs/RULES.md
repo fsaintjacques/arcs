@@ -92,8 +92,14 @@ Adjacency:
 - Each **gate** is adjacent to the 3 planets in its cluster and to the gates of
   its 2 neighbouring clusters (the gates form a ring).
 - Each **planet** is adjacent to the gate in its cluster, and to one or both
-  neighbouring planets in that cluster. Planets separated by a thick, irregular
-  border are not adjacent.
+  neighbouring planets. Planets separated by a thick, irregular border are not
+  adjacent.
+
+The rule says *neighbouring planets*, not *neighbouring planets in that
+cluster* — the 18 planets are a ring, and a planet at the edge of a cluster
+neighbours one in the next. Two of the six cluster boundaries carry a thin
+border on the printed board and are therefore adjacent: **2.3 – 3.1** and
+**5.3 – 6.1**. See [DATA-GAPS.md](DATA-GAPS.md#the-border-transcription).
 
 Each planet has a **planet type** (one of the 5 resource types) and **1 or 2
 building slots**.

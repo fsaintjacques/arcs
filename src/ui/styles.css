@@ -454,6 +454,26 @@ td.leading {
   color: var(--warn);
 }
 
+.chip-button {
+  cursor: pointer;
+  color: inherit;
+  font: inherit;
+  font-size: 11px;
+  line-height: 1.4;
+}
+
+.chip-button:hover,
+.chip-button.chip-open {
+  border-color: var(--accent);
+}
+
+.guild-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 8px;
+  margin: 7px 0 3px;
+}
+
 .tag {
   font-size: 10px;
   text-transform: uppercase;

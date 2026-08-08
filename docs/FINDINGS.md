@@ -326,6 +326,45 @@ and has not been done.
 The dice correction earlier in this file rests on the same compromised
 instrument and deserves the same caveat.
 
+### The map was missing two edges, and this time it was measured first
+
+The 18 planets are a **ring**, not six separate rows of three. The rulebook says
+a planet "is adjacent to one or both neighbouring planets" and never says the
+neighbour has to be in the same cluster; the engine assumed it did, so all six
+cluster boundaries were walls. On the printed board only **four** of them are —
+the other two are ordinary thin borders, and ships cross them without routing
+through a gate. The joins are 2.3–3.1 and 5.3–6.1.
+
+Reported by someone reading the physical board, then confirmed from the setup
+cards, which draw the same map with no planet art on top of it. Median-combining
+all 12 cards erases their labels and out-of-play shading; scanning circles round
+the centre then sorts the 18 radial borders into three clean tiers — 12 at
+5.0–6.8px, two at 10.0 and 11.1px, four at 20.2–24.5px. The wide four also
+*wander* 3–7× as much in angle, which is what "thick, irregular" means; the two
+middle ones are dead straight. Full method in
+[DATA-GAPS.md](DATA-GAPS.md#the-border-transcription).
+
+**Did it move the ladder?** Barely, and not detectably. Same seed, same 30
+deals, one data change:
+
+| planet ring | `greedy` win % (3p field) | `greedy` vs `mc` |
+|---|---|---|
+| closed (before) | 69.4 ±6.7 | +38.9 ±10.4 |
+| open (after) | 65.6 ±6.9 | +31.1 ±11.7 |
+
+Both moved the same way — the extra route slightly narrows `greedy`'s edge — but
+each reading sits inside the other's interval, so the direction is suggestive
+and nothing more. The reason is visible in the setup: a join only exists if both
+its clusters are in play, which happens for **0.52 of the 2 joins per game at 3
+players**, 0.97 at 2 and 1.00 at 4. Half the correction is out of play most of
+the time. (Those rates come off the *reconstructed* setup deck, so they are a
+property of four invented cards, not of the box.)
+
+This is the third time an environment change has been checked for ladder impact
+rather than assumed to have none — which is the habit the harness bug was
+supposed to teach. Unlike the dice and the earlier map transcription, this one
+was measured on the fixed harness, before any claim was written down.
+
 ### `random+` *is* an improvement — four null readings were the harness
 
 This file said four times that "never end a turn with actions unspent, never burn

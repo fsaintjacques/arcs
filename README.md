@@ -33,16 +33,18 @@ that claim honest.
 One thing inside the base game is still reconstructed, because the data lives on
 the physical components rather than in the rulebook:
 
-- **Setup cards, and one detail of the map.** The map is transcribed from the
-  printed board — all 18 planet types and building-slot counts, cross-checked
-  against the type distribution (Material 4, Fuel 4, Weapon 4, Relic 3,
-  Psionic 3) — on top of a structurally faithful graph (6 clusters, 1 gate + 3
-  planets, ring adjacency, out-of-play clusters and path markers). What remains
-  reconstructed is which intra-cluster planet pair a thick border splits.
-  Openings come from a **reconstructed setup deck** — 4 cards per player count,
-  as the box has — chosen by scoring 20,000 legal layouts for balance rather
-  than invented by hand. Every stated setup rule is obeyed and asserted per
-  card; the printed 12 remain unknown.
+- **Setup cards.** Openings come from a **reconstructed setup deck** — 4 cards
+  per player count, as the box has — chosen by scoring 20,000 legal layouts for
+  balance rather than invented by hand. Every stated setup rule is obeyed and
+  asserted per card; the printed 12 remain unknown.
+
+The map, by contrast, is now transcribed end to end: all 18 planet types and
+building-slot counts read off the printed board and cross-checked against the
+type distribution (Material 4, Fuel 4, Weapon 4, Relic 3, Psionic 3), and all 18
+borders round the planet ring read off the setup cards. That last pass found a
+real error — the planets are a **ring**, so two of the six cluster boundaries
+are crossings rather than walls (2.3–3.1 and 5.3–6.1), and the engine had none
+of them.
 
 Every such value is isolated, marked `// DATA-GAP:` in code, and catalogued in
 [docs/DATA-GAPS.md](docs/DATA-GAPS.md) with the reconstruction used and how to

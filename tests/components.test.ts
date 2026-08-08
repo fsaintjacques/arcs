@@ -61,6 +61,30 @@ describe('map', () => {
     }
   });
 
+  it('closes the planet ring across the two thin cluster boundaries', () => {
+    // Printed clusters 2.3-3.1 and 5.3-6.1 share a thin border; the other four
+    // boundaries carry the thick irregular one. See JOINED_BOUNDARIES in map.ts.
+    const joined: [number, number][] = [
+      [planetId(1, 2), planetId(2, 0)],
+      [planetId(4, 2), planetId(5, 0)],
+    ];
+    for (const [a, b] of joined) {
+      expect(systems[a].adjacent, `${systems[a].label} - ${systems[b].label}`).toContain(b);
+      expect(systems[b].adjacent).toContain(a);
+    }
+    // Exactly two, so the other four boundaries stay closed.
+    const crossings = systems
+      .filter((s) => s.kind === 'planet')
+      .flatMap((s) => s.adjacent.filter((n) => !isGate(n) && clusterOf(n) !== s.cluster).map((n) => [s.id, n]));
+    expect(crossings).toHaveLength(4); // 2 boundaries, counted from both sides
+  });
+
+  it('drops a cross-cluster planet link when either cluster goes out of play', () => {
+    const resolved = resolveAdjacency(systems, [2]);
+    expect(resolved[planetId(1, 2)].adjacent).not.toContain(planetId(2, 0));
+    for (const s of resolved) for (const n of s.adjacent) expect(resolved[n].adjacent).toContain(s.id);
+  });
+
   it('gives every planet a type and 1-2 building slots', () => {
     for (const s of systems.filter((x) => x.kind === 'planet')) {
       expect(s.planetType).not.toBeNull();
