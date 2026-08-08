@@ -17,7 +17,6 @@ import {
   type GameState,
   drawSetup,
   SETUP_DECK,
-  isGate,
   clusterOf,
 } from '../src/engine';
 import { actions, actor, ADMIN, AGGRESSION, apply, battleState, cardId, CONSTRUCTION, find, MOBILIZATION, setHand, settle, startGame } from './helpers';
@@ -78,8 +77,8 @@ describe('setup (p4-p5)', () => {
           // A and B take a city and a starport and yield a resource at step O.
           expect(v.systems[st.a].planetType, where).not.toBeNull();
           expect(v.systems[st.b].planetType, where).not.toBeNull();
+          // C takes only ships, so unlike A and B it may be a gate or a planet.
           expect(st.c, where).toHaveLength(players === 2 ? 2 : 1);
-          for (const g of st.c) expect(isGate(g), where).toBe(true);
           for (const x of [st.a, st.b, ...st.c]) {
             expect(dead.has(clusterOf(x)), `${where}: system ${x} in a dead cluster`).toBe(false);
           }
@@ -89,21 +88,34 @@ describe('setup (p4-p5)', () => {
     }
   });
 
-  it('assigns players to card positions at random, not by seat', () => {
-    // The card numbers its positions; nothing says seat 0 takes position 1. A
-    // human sitting in seat 0 should not always start in the same corner.
+  it('gives position 1 to the player with the initiative, then clockwise (p5 step N)', () => {
+    for (const players of [2, 3, 4]) {
+      for (let seed = 0; seed < 40; seed++) {
+        const v = makeVariant(players, seed);
+        const s = newGame(v, mulberry32(seed + 1), seed);
+        const card = drawSetup(players, seed);
+        card.starts.forEach((st, position) => {
+          const seat = (s.initiative + position) % players;
+          const city = s.systems[st.a].buildings.find((b) => b.kind === 'city');
+          const port = s.systems[st.b].buildings.find((b) => b.kind === 'starport');
+          expect(city?.player, `${players}p seed ${seed} position ${position + 1}A`).toBe(seat);
+          expect(port?.player, `${players}p seed ${seed} position ${position + 1}B`).toBe(seat);
+        });
+      }
+    }
+  });
+
+  it('reaches every seat-to-position assignment across draws', () => {
+    // Initiative is random, so a human in seat 0 does not always open in the
+    // same corner — but it is a rotation of the seats, not a free permutation.
     for (const players of [2, 3, 4]) {
       const taken = new Array(players).fill(0);
       for (let seed = 0; seed < 600; seed++) {
-        const setup = drawSetup(players, seed);
-        const card = SETUP_DECK[players].find((c) => c.name === setup.name)!;
-        const pos = card.starts.findIndex(
-          (st) => st.a === setup.starts[0].a && st.b === setup.starts[0].b,
-        );
-        expect(pos, `${players}p seed ${seed}`).toBeGreaterThanOrEqual(0);
-        taken[pos]++;
+        const v = makeVariant(players, seed);
+        const s = newGame(v, mulberry32(seed + 1), seed);
+        // The position seat 0 took.
+        taken[(players - s.initiative) % players]++;
       }
-      // Every position reached, none dominating: uniform would be 600/players.
       for (const n of taken) expect(n, `${players}p spread ${taken}`).toBeGreaterThan(600 / players / 2);
     }
   });

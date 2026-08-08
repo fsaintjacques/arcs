@@ -8,7 +8,7 @@
  * outlined triangles and their resource type on a badge beside them.
  *
  * Geometry comes from the engine's graph, not from a picture, so replacing the
- * map data moves the board with it (see docs/DATA-GAPS.md §2). What is copied
+ * map data moves the board with it (see docs/DATA-GAPS.md). What is copied
  * from the printed board is the *arrangement* — the wheel, the gate ring, the
  * numbering, the triangles — rather than any artwork.
  */

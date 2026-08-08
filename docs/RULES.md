@@ -5,10 +5,11 @@ plus the **official Arcs aid booklet** for the battle die faces. This document
 is the ground truth the engine in `src/engine/` is coded against. Page numbers
 in parentheses cite the rulebook unless marked "aid".
 
-Component data that neither document contains (exact map layout, setup cards,
-Guild/Vox card texts, ambition marker reverse sides, player-board economy) is
-reconstructed — see [DATA-GAPS.md](DATA-GAPS.md) for every such value and how to
-correct it.
+Component data that neither document contains is transcribed from the printed
+game — the map, the 12 setup cards, the 31 Guild and Vox cards — except for two
+values that are still reconstructed: the ambition markers' reverse sides and the
+player-board economy. See [DATA-GAPS.md](DATA-GAPS.md) for both, and for how the
+transcriptions were made and can be corrected.
 
 Scope: **base game only**. Leaders & Lore (p21) and the Blighted Reach campaign
 are out of scope; the engine has the hooks but ships no leader/lore data.

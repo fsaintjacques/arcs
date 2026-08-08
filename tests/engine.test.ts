@@ -146,11 +146,13 @@ describe('decision process', () => {
     for (const path of ['Pressgang', 'Execute', 'Abduct', 'union', 'farseers', 'stealCard', 'reroll', 'vox']) {
       expect(seen, path).toContain(path);
     }
-    // Manufacture and Synthesize are also absent, and that is the Cartels
-    // working: with both held, the Material and Fuel supplies are empty, so
-    // neither "gain 1 of that resource" action can be offered at all.
-    expect(seen).not.toContain('Manufacture');
-    expect(seen).not.toContain('Synthesize');
+    // Manufacture and Synthesize are *not* asserted absent, even though the
+    // setup above empties the Material and Fuel supplies onto the Cartels. This
+    // test hands every player a copy of every card, so the Cartels are held
+    // several times over — and discarding any one copy releases the whole
+    // stockpile back to the supply, after which "gain 1 Fuel" is legal again.
+    // That is the artifice, not the engine: the box has one of each card. The
+    // Cartels are tested against a single holder in powers.test.ts.
   });
 
   it('applyAction is pure: the input state is untouched', () => {

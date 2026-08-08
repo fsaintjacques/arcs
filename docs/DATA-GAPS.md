@@ -12,14 +12,17 @@ space, and the agent API are all independent of these values.
 | # | Datum | Module | Confidence |
 |---|---|---|---|
 | 1 | Ambition marker reverse sides | `src/engine/ambitions.ts` | medium — one of three confirmed |
-| 2 | Setup cards | `src/engine/setup.ts` | low — a balance-scored deck of 4 per count, not the printed 12 |
-| 3 | Player board economy | `src/engine/playerBoard.ts` | low |
+| 2 | Player board economy | `src/engine/playerBoard.ts` | low |
 
 **Closed:** battle die faces (official aid booklet p3 prints all six faces of
 each die), the Court card data (names, suits, raid costs and verbatim text for
-all 31 cards), **every Court card ability**, all 31 now dispatched, and — as of
-this pass — **the map**, in full: planet types, building-slot counts and every
-one of the 18 borders round the planet ring.
+all 31 cards), **every Court card ability**, all 31 now dispatched, **the map**
+in full — planet types, building-slot counts and every one of the 18 borders
+round the planet ring — and **the 12 setup cards**.
+
+Only two entries are left, and neither is load-bearing: the game plays the same
+whatever the ambition markers flip to, and the player board's reward layout is a
+late-game detail.
 
 ---
 
@@ -188,37 +191,63 @@ now part of the state rather than bolted onto a card:
 Three of those raised questions the cards do not answer; all three are recorded
 as [engine rulings](RULES.md#11-engine-rulings).
 
-## 2. Setup cards
+## Closed: the setup cards
 
-The box has 12 setup cards — 4 each for 2, 3 and 4 players — and their contents
-are not in the rulebook. `SETUP_DECK` in `setup.ts` holds a reconstructed deck of
-the same shape, and a game plays step I as written: shuffle the cards for your
-player count, draw one, take positions on it.
+`SETUP_DECK` in `setup.ts` is the printed 12 — 4 each for 2, 3 and 4 players —
+transcribed from the card faces. A game plays step I as written: shuffle the
+cards for your player count, draw one, take positions on it.
 
-**How the four were chosen.** Not by hand and not uniformly. `tools/pick-setups.ts`
-scores 20,000 legal openings for balance — equal building capacity across
-players, two distinct resource types each, and no two players crowded into
-neighbouring clusters — and keeps the best four per count, requiring them to
-differ in which clusters they take out of play. The 2-player cards score
-perfectly balanced; 3 and 4 players cannot, because 4 or 5 live clusters will
-not seat that many players an equal distance apart. That is the map's geometry,
-not a defect in the search.
+### How they were read
 
-Every stated setup rule holds, asserted per card in `rules.test.ts`: the right
-number of out-of-play clusters, each taking its gate and the 3 planets touching
-it (p4 step J); one A, one B and one C per player, two Cs at 2 players; A and B
-always planets, since they take a city and a starport and their printed resource
-is gained at step O; nothing in a dead cluster; no system shared.
+Each card draws the map schematically — the same 18 planet slices and 6 gate
+sectors as the board, with no planet art — and prints a position label ("2B",
+"1C") in each system a player starts in. So reading a card is a geometry
+problem, not an OCR one: the border angles were measured once (above), which
+fixes every sector's span, and a label's angle and radius then name its system.
 
-### Two things the card does not decide
+`tools/read-setups.mjs` redraws the sector names over a card so any entry can be
+re-checked by eye:
 
-- **Which player takes which position.** The card labels its positions 1A/1B/1C,
-  2A/2B/2C and so on, and nothing says seat 0 is position 1. `drawSetup` assigns
-  players to positions at random, so a human in seat 0 does not always open in
-  the same corner of the same card.
-- **Turn order**, which comes from the initiative marker and is drawn at setup.
+```bash
+node tools/read-setups.mjs "2 Players - Frontiers.jpg" annotated.png
+```
 
-Both are uniform over 2000 draws at every player count.
+Three things check the result:
+
+- **Two independent images of the same card agree.** The rulebook's component
+  photo (p3) prints *2 Players – Frontiers* legibly at 400dpi, and every one of
+  its eight labels lands where the card scan puts it.
+- **Building capacity comes out level.** Each player's A and B planets carry 3
+  building slots between them on 9 of the 12 cards, and are off by one on the
+  other 3. The transcription never used the slot counts — those were read off
+  the board months earlier — so two independent readings agreeing on a design
+  invariant is a real check.
+- **Every stated setup rule holds**, asserted per card in `rules.test.ts`: the
+  right number of out-of-play clusters, each taking its gate and the 3 planets
+  touching it (p4 step J); one A, one B and one C per player, two Cs at 2
+  players; A and B always planets, since they take a city and a starport and
+  their printed resource is gained at step O; nothing in a dead cluster; no
+  system shared.
+
+One assumption the real cards overturned: **C positions are not always gates.**
+The reconstruction made them so; *2 Players – Mix Up 1* puts a 1C on planet 6.1
+and *2 Players – Frontiers* puts a 1C on planet 3.3. C only ever takes ships, so
+nothing requires it to be a gate.
+
+### Which player takes which position
+
+Not the card's business, and not a separate random draw either — it follows the
+initiative marker: "The player with the initiative marker does this: place 3
+ships and 1 city in the system marked 1A… Going clockwise from the player with
+initiative, the 2nd, 3rd, and 4th players set up in the same way in the systems
+marked 2A–C, 3A–C, and 4A–C" (p5 step N). Initiative goes to a random player at
+step B, so the assignment is random, but it is a random **rotation** of the
+seats rather than a free permutation, and position 1 always belongs to the
+player who moves first.
+
+An earlier pass randomised position independently of initiative, which
+over-randomises: it breaks the link between opening first and opening on
+position 1. `rules.test.ts` now asserts the rotation directly.
 
 ### The measurement mode
 
@@ -228,22 +257,16 @@ boards per count, and is exposed as `--free-setup`.
 
 The distinction earns its keep, because **few openings flatter results**. On the
 six fixed rotations this project used originally, `greedy` beat `mc` by
-+31.7 ±15.1. On freely drawn openings the same matchup is +13.3 ±17.1, and on
-the four setup cards +18.3 ±18.3 — neither separated. Nothing about either agent
-changed. Use `deck` to ask "who wins Arcs", and `draw` when the opening should
-be a nuisance variable rather than part of the game.
++31.7 ±15.1. On freely drawn openings the same matchup is +13.3 ±17.1 — not
+separated. Nothing about either agent changed. Use `deck` to ask "who wins
+Arcs", and `draw` when the opening should be a nuisance variable rather than
+part of the game.
 
-### What one printed card tells us
+To correct a misread label: edit `SETUP_DECK` in `setup.ts`. Systems are engine
+ids (`cluster * 4 + slot`, slot 0 the gate), so the printed "3.1" is 9 and the
+printed gate "5" is 16.
 
-The rulebook's component photo (p3) shows *2 Players – Frontiers* legibly at
-400dpi, and it corrects an assumption an earlier generator made: `1A` and `1B`
-sit in **different clusters**, and the two `1C`s are scattered. Real setups
-spread a player across the map rather than giving them a home cluster, and the
-reconstruction follows that.
-
-To use the printed cards, replace `SETUP_DECK` with the real 12.
-
-## 3. Player board economy
+## 2. Player board economy
 
 Reconstructed: 5 city slots and 6 resource slots with raid costs
 `[1, 1, 2, 2, 3, 3]`; three resource slots open at setup (covering the two

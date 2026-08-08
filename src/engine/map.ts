@@ -11,7 +11,7 @@
  *     sit in the *next* cluster. See `JOINED_BOUNDARIES`.
  *
  * Planet types, building-slot counts and the border reading below are all
- * transcribed from printed components — see docs/DATA-GAPS.md §2 for the
+ * transcribed from printed components — see docs/DATA-GAPS.md for the
  * extraction recipe and the badge legend.
  */
 import type { ResourceType, SystemDef } from './types';

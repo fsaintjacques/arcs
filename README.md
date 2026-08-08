@@ -30,25 +30,24 @@ cards work as printed** — every Guild and Vox ability is dispatched, and
 `POWER_STATUS` in `court.ts` plus a test that asserts nothing is left over keep
 that claim honest.
 
-One thing inside the base game is still reconstructed, because the data lives on
-the physical components rather than in the rulebook:
+Every component whose data the engine needs is now transcribed from the printed
+game rather than reconstructed:
 
-- **Setup cards.** Openings come from a **reconstructed setup deck** — 4 cards
-  per player count, as the box has — chosen by scoring 20,000 legal layouts for
-  balance rather than invented by hand. Every stated setup rule is obeyed and
-  asserted per card; the printed 12 remain unknown.
+- **The map** — all 18 planet types and building-slot counts, cross-checked
+  against the type distribution (Material 4, Fuel 4, Weapon 4, Relic 3,
+  Psionic 3), and all 18 borders round the planet ring. Reading the borders
+  found a real error: the planets are a **ring**, so two of the six cluster
+  boundaries are crossings rather than walls (2.3–3.1 and 5.3–6.1), and the
+  engine had none of them.
+- **The Court** — 31 cards, names, suits, raid costs and verbatim text.
+- **The setup cards** — the printed 12, so a game opens on a board the box
+  actually contains. Which player takes which position follows the initiative
+  marker, as the rulebook says, rather than a separate draw.
 
-The map, by contrast, is now transcribed end to end: all 18 planet types and
-building-slot counts read off the printed board and cross-checked against the
-type distribution (Material 4, Fuel 4, Weapon 4, Relic 3, Psionic 3), and all 18
-borders round the planet ring read off the setup cards. That last pass found a
-real error — the planets are a **ring**, so two of the six cluster boundaries
-are crossings rather than walls (2.3–3.1 and 5.3–6.1), and the engine had none
-of them.
-
-Every such value is isolated, marked `// DATA-GAP:` in code, and catalogued in
-[docs/DATA-GAPS.md](docs/DATA-GAPS.md) with the reconstruction used and how to
-correct it. None of them affect the shape of the engine.
+Two reconstructed values remain, both marked `// DATA-GAP:` in code and
+catalogued in [docs/DATA-GAPS.md](docs/DATA-GAPS.md) with how to correct them:
+two of the three ambition markers' reverse sides, and which player-board city
+slot uncovers which reward. Neither affects the shape of the engine.
 
 ## The interface
 
@@ -191,7 +190,7 @@ npm run sim -- --help
 | `--agents` | `greedy,greedy,greedy` | one per seat; 2–4 of them sets the player count |
 | `--games` | 100 | batch size |
 | `--seed` | 1 | games are fully reproducible from this |
-| `--setup` | 0 | seeds the opening: which setup card, and who takes which position |
+| `--setup` | 0 | seeds the opening: which of the four setup cards is drawn |
 | `--free-setup` | off | invent a fresh legal opening per deal instead of drawing a card |
 | `--opts` | — | JSON passed to every agent |
 | `--no-rotate` | off | keep seats fixed instead of permuting |
@@ -213,44 +212,45 @@ it.
 
 ## Results
 
-All from the **paired** harness playing the **setup-card deck** — draw one of the
-four cards for your player count, take positions on it at random, every deal
-played from every seating. Numbers published before these fixes are not
-comparable; see below.
+All from the **paired** harness playing the **printed setup deck** — shuffle the
+four cards for your player count, draw one, and take positions from the
+initiative marker, with every deal played from every seating. All at `--seed 1`.
+Numbers published before these fixes are not comparable; see below.
 
 Two players:
 
 | matchup | games | deals | win % | paired difference | separated |
 |---|---|---|---|---|---|
 | `greedy` vs `random+` | 120 | 60 | **100.0** / 0.0 | +100.0 ±0.0 | yes |
-| `mcts` vs `greedy` | 120 | 60 | **71.7** / 28.3 | +43.3 ±17.0 | yes |
-| `random+` vs `random` | 2000 | 1000 | **60.5** / 39.6 | +20.9 ±4.2 | yes |
-| `greedy` vs `mc` | 120 | 60 | 59.2 / 40.8 | +18.3 ±18.3 | **no** |
+| `mcts` vs `greedy` | 120 | 60 | **70.0** / 30.0 | +40.0 ±14.1 | yes |
+| `random+` vs `random` | 2000 | 1000 | **60.0** / 40.0 | +20.0 ±4.2 | yes |
+| `greedy` vs `mc` | 120 | 60 | 51.7 / 48.3 | +3.3 ±15.4 | **no** |
 
 Three players:
 
-| field | games | deals | win % |
-|---|---|---|---|
-| `greedy`, `mc`, `random` | 180 | 30 | **65.0** / 35.0 / 0.0 |
+| field | games | deals | win % | `greedy` vs `mc` |
+|---|---|---|---|---|
+| `greedy`, `mc`, `random` | 180 | 30 | **57.2** / 42.8 / 0.0 | +14.4 ±13.5 |
 
-`mcts` > `greedy` > `mc` > `random+` > `random`, with `greedy` vs `mc` the one
-rung not settled head-to-head — though `greedy` takes the 3-player field.
+`mcts` > `greedy` > `mc` > `random+` > `random`, with `greedy` vs `mc` still the
+one rung not settled head-to-head — it is now a dead heat at two players — though
+`greedy` takes the 3-player field.
 
-**The opening is a variable.** Setups follow the game: shuffle the four setup
-cards for your player count, draw one, and take positions on it — with *which*
-position each player gets, and turn order, both randomised, since the card
-decides neither. The same matchup across three ways of choosing the opening,
-same agents throughout:
+**The opening is a variable, and it moved again on real data.** Same matchup,
+same agents, four ways of choosing the opening:
 
-| openings | `greedy` vs `mc` | separated |
+| openings | `greedy` vs `mc` (2p) | separated |
 |---|---|---|
 | 6 fixed rotations (originally) | +31.7 ±15.1 | yes |
-| 4 setup cards (as played) | +18.3 ±18.3 | no |
+| 4 reconstructed cards | +18.3 ±18.3 | no |
 | ~3000 free draws (`--free-setup`) | +13.3 ±17.1 | no |
+| **the printed 12** | **+3.3 ±15.4** | no |
 
-Some of that original edge was an edge *on those six boards*. The 3-player field
-held its separation throughout, which is the recurring pattern here: the
-multiplayer result is the durable one.
+The trend runs one way the whole time: the freer and more real the opening, the
+smaller `greedy`'s edge. Some of that original 31.7 was an edge *on those six
+boards*, and some of the 18.3 was an edge on four boards this project invented.
+The 3-player field held its separation throughout, which is the recurring
+pattern here: the multiplayer result is the durable one.
 
 **The measurement was broken, and finding that out was worth more than any result
 it produced.** The batch runner advanced the seed *and* the setup index on every
