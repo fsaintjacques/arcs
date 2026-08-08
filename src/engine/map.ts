@@ -8,10 +8,14 @@
  *     (the gates form a ring, cluster 1..6 clockwise);
  *   - each planet touches its gate and one or both neighbouring planets.
  *
- * DATA-GAP: which planet type sits where, how many building slots each planet
- * has, and which intra-cluster planet pairs share a thin border are not in the
- * rulebook. The layout below is *a* legal Reach, not *the* Reach — see
- * docs/DATA-GAPS.md §2. Replace `CLUSTERS` to use the printed map.
+ * Planet types and building-slot counts below are transcribed from the board
+ * illustration on p4 of the high-resolution rulebook — see docs/DATA-GAPS.md §2
+ * for the extraction recipe and the badge legend.
+ *
+ * DATA-GAP (residual): which intra-cluster planet pair is separated by a thick
+ * border is still modelled uniformly as a path (planet 1-2 and 2-3 adjacent,
+ * 1-3 not), which satisfies "adjacent to one or both neighbouring planets" (p6)
+ * but is not read off the board per cluster.
  */
 import type { ResourceType, SystemDef } from './types';
 
@@ -24,44 +28,44 @@ interface PlanetDef {
 }
 
 /**
- * The 3 planets of each cluster, in slot order 1..3. Planet 1-2 and 2-3 are
- * adjacent; 1-3 are separated by a thick border (p6).
+ * The 3 planets of each cluster, in slot order 1..3, transcribed from the
+ * printed board. Within a wedge the planets are listed in increasing angle
+ * (clockwise), matching the gate numbering: gate 1 at the top, 2..6 clockwise.
  *
- * 18 planets over 5 types: material/fuel/relic/psionic ×4 is 16, weapon ×2 —
- * weapon planets are deliberately scarce because Weapon Guild cards score no
- * ambition (p17), so weapon worlds are a means, not an end.
+ * 18 planets: Material ×4, Fuel ×4, Weapon ×4, Relic ×3, Psionic ×3. Relic and
+ * Psionic are the scarce types, which is why Keeper and Empath are the cheap
+ * ambitions to contest. `components.test.ts` asserts this distribution.
  */
-// DATA-GAP: invented layout, see docs/DATA-GAPS.md §2.
 const CLUSTERS: PlanetDef[][] = [
   [
-    { type: 'material', slots: 2 },
+    { type: 'weapon', slots: 2 },
     { type: 'fuel', slots: 1 },
-    { type: 'psionic', slots: 1 },
-  ],
-  [
-    { type: 'fuel', slots: 2 },
-    { type: 'relic', slots: 1 },
-    { type: 'material', slots: 1 },
-  ],
-  [
     { type: 'material', slots: 2 },
-    { type: 'weapon', slots: 1 },
-    { type: 'relic', slots: 1 },
   ],
   [
-    { type: 'fuel', slots: 2 },
     { type: 'psionic', slots: 1 },
+    { type: 'weapon', slots: 1 },
+    { type: 'relic', slots: 2 },
+  ],
+  [
     { type: 'material', slots: 1 },
+    { type: 'fuel', slots: 1 },
+    { type: 'weapon', slots: 2 },
   ],
   [
     { type: 'relic', slots: 2 },
-    { type: 'fuel', slots: 1 },
-    { type: 'psionic', slots: 1 },
+    { type: 'fuel', slots: 2 },
+    { type: 'material', slots: 1 },
   ],
   [
-    { type: 'psionic', slots: 2 },
     { type: 'weapon', slots: 1 },
     { type: 'relic', slots: 1 },
+    { type: 'psionic', slots: 2 },
+  ],
+  [
+    { type: 'material', slots: 1 },
+    { type: 'fuel', slots: 2 },
+    { type: 'psionic', slots: 1 },
   ],
 ];
 

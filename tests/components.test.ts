@@ -73,6 +73,23 @@ describe('map', () => {
     }
   });
 
+  it('distributes the 18 planets as the printed board does', () => {
+    const planets = systems.filter((s) => s.kind === 'planet');
+    expect(planets).toHaveLength(18);
+    const count = (t: string) => planets.filter((s) => s.planetType === t).length;
+    expect(count('material')).toBe(4);
+    expect(count('fuel')).toBe(4);
+    expect(count('weapon')).toBe(4);
+    expect(count('relic')).toBe(3);
+    expect(count('psionic')).toBe(3);
+    // 26 building slots, and no cluster is a monoculture.
+    expect(planets.reduce((n, s) => n + s.buildingSlots, 0)).toBe(26);
+    for (let c = 0; c < CLUSTER_COUNT; c++) {
+      const types = new Set(planets.filter((s) => s.cluster === c).map((s) => s.planetType));
+      expect(types.size, `cluster ${c + 1}`).toBe(3);
+    }
+  });
+
   it('adjacency is symmetric', () => {
     for (const s of systems) {
       for (const n of s.adjacent) expect(systems[n].adjacent).toContain(s.id);

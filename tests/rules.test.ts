@@ -406,9 +406,16 @@ describe('standard actions (p12-p13)', () => {
     const f = startGame(3, 44);
     const player = actor(f);
     const rival = (player + 1) % 3;
+    // Any in-play planet with a free building slot; put a ship of the player's
+    // there so they may build, and enough rival ships that the rival controls it.
     const system = f.s.systems.findIndex(
-      (sys, i) => f.v.systems[i].kind === 'planet' && sys.fresh[player] > 0,
+      (sys, i) =>
+        f.v.systems[i].kind === 'planet' &&
+        f.v.systems[i].adjacent.length > 0 &&
+        sys.buildings.length < f.v.systems[i].buildingSlots,
     );
+    expect(system).toBeGreaterThanOrEqual(0);
+    f.s.systems[system].fresh[player] += 1;
     f.s.systems[system].fresh[rival] = 9; // rival now controls it
     setHand(f, player, [cardId(CONSTRUCTION, 2)]);
     apply(f, { t: 'lead', card: cardId(CONSTRUCTION, 2) });
@@ -717,6 +724,9 @@ describe('ambition scoring (p18)', () => {
   it('sums the values of every marker in a box', () => {
     const { s, v } = scored((st) => {
       st.declared.tycoon = [0, 2]; // 5/3 and 2/0 → 7/3, matching the p18 example
+      // Setup hands out starting resources; clear them so the counts are the
+      // ones this test states.
+      for (const ps of st.playerStates) ps.resources.fill(null);
       st.playerStates[0].resources[0] = 'material';
       st.playerStates[0].resources[1] = 'fuel';
       st.playerStates[1].resources[0] = 'material';

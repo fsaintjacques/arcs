@@ -5,9 +5,10 @@ are in the README; this keeps the evidence, the negative results, and the
 methodology traps that cost real time.
 
 Everything here describes **this engine's Arcs**. The Court cards are now real
-data with 13 of 31 abilities dispatched, but the map is still reconstructed
-(see [DATA-GAPS.md](DATA-GAPS.md)), so treat the strategic conclusions as
-provisional.
+data with 13 of 31 abilities dispatched, and the map's planet types and building
+slots are transcribed from the printed board; the setup cards and a few
+component details are still reconstructed (see [DATA-GAPS.md](DATA-GAPS.md)), so
+treat the strategic conclusions as provisional.
 
 ## Methodology traps
 
@@ -104,28 +105,32 @@ exactly the structure that averages throw away.
 
 ## The ladder
 
-Current numbers: corrected dice, and the first tranche of Guild card abilities
-live.
+Current numbers: corrected dice, the first tranche of Guild card abilities live,
+and the transcribed map.
 
 2 players:
 
 | matchup | games | win % | mean Power |
 |---|---|---|---|
-| `random+` vs `random` | 40 | 52.5 / 47.5 | 3.9 / 4.1 |
-| `greedy` vs `random+` | 40 | 100.0 / 0.0 | 44.6 / 2.4 |
-| `greedy` vs `mc` | 40 | 67.5 / 32.5 | 32.0 / 20.0 |
-| `greedy` vs `mcts` | 60 | 55.0 / 45.0 | 24.5 / 21.5 |
+| `random+` vs `random` | 40 | 62.5 / 37.5 | 4.8 / 4.8 |
+| `greedy` vs `random+` | 40 | 100.0 / 0.0 | 42.6 / 2.0 |
+| `greedy` vs `mc` | 40 | 45.0 / 55.0 | 26.5 / 24.9 |
+| `greedy` vs `mcts` | 60 | 41.7 / 58.3 | 21.3 / 22.6 |
 
 3 players:
 
 | field | games | win % |
 |---|---|---|
-| `greedy`, `mc`, `random` | 60 | 65.0 / 35.0 / 0.0 |
+| `greedy`, `mc`, `random` | 60 | 61.7 / 38.3 / 0.0 |
 
 An earlier 4-player run put two identical greedy seats at 43.8% and 41.7% — a
 useful check that permuted seating is doing its job.
 
-### The same matchup has flipped three times
+Only one row here is a real result: `greedy` beats `random+` 40–0, and every bot
+beats `random` outright. Everything else moved when the map did, and moved by
+more than any agent change has produced.
+
+### The same matchup has flipped four times
 
 `greedy` vs `mcts`, same agents, same seeds, 60 games each:
 
@@ -134,45 +139,89 @@ useful check that permuted seating is doing its job.
 | inferred die faces | 50.0 | 50.0 |
 | corrected die faces | 35.0 | **65.0** |
 | + Guild card abilities | **55.0** | 45.0 |
+| + transcribed map | 41.7 | **58.3** |
 
 Every one of those sits inside a ±12.6 interval. The honest conclusion is not
-"abilities favour greedy" — it is that **these two agents are closer together
-than 60 games can resolve**, and that reporting any single row as a ranking is
-reading noise. Two independent data corrections were each enough to drag the
-point estimate across the midline.
+that any of these corrections "favours" a bot — it is that **these two agents
+are closer together than 60 games can resolve**, and that reporting any single
+row as a ranking is reading noise. Three independent component-data
+corrections were each enough to drag the point estimate across the midline.
 
 Worth remembering the next time a 60-game batch looks decisive. The 24-game
 read of 58/42 for `mcts` was flagged as noise here when it happened; the same
-thing has now happened twice more at 60.
+thing has now happened three more times at 60.
+
+### Fixing the map moved the ladder more than any agent change has
+
+The map correction only changed *which resource each planet yields and how many
+buildings fit on it* — no rule, no agent, no evaluation weight. It moved
+`greedy` vs `mc` from 67.5/32.5 to 45.0/55.0, a 22.5-point swing, and reversed
+the heads-up result.
+
+The mechanism is visible in the type distribution. The invented map spread the
+types near-evenly and gave weapon planets deliberately scarce placement; the
+printed map has **Weapon ×4 and Relic/Psionic ×3**, so the two cheapest
+ambitions to contest — Keeper and Empath — sit on the *scarce* resources, and
+Weapon worlds, which score no ambition at all, are the *common* ones. A bot
+whose evaluation prices resources uniformly is now systematically overvaluing a
+third of the board.
+
+`greedy` still wins the 3-player field 61.7/38.3, so the heads-up flip is not a
+clean reversal of strength — it is two agents trading places inside the noise
+band while the terrain under both of them changed. The lesson matches the dice
+one: **component data is not a detail that rounds out; it is an input the search
+reads directly.** Two of the four flips above came from data, not code.
+
+This also retires a finding that had been stable across every previous version:
+`mcts` no longer scores less Power than `greedy` (22.6 vs 21.3). Whatever was
+driving that gap was a property of the invented economy.
 
 ### `random+` is not an improvement
 
 "Never end a turn with actions unspent, never burn a card to seize" sounds
-strictly better than uniform random, and over 40 games it is 52.5/47.5 — inside
-the ±15.5 interval. Spending every pip on a randomly chosen action is not worth
-much when the action is random. It remains useful as the rollout policy because
-it keeps rollouts moving, but it is not evidence that the heuristic is sound.
+strictly better than uniform random. Over 40 games it has read 52.5/47.5 and,
+after the map correction, 62.5/37.5 — both inside the ±15.5 interval, and the
+mean Power is *identical* (4.8 each). Spending every pip on a randomly chosen
+action is not worth much when the action is random. It remains useful as the
+rollout policy because it keeps rollouts moving, but 40 games cannot tell it
+apart from uniform random, and the two readings straddling the midline are the
+evidence for that rather than against it.
 
-### Flat Monte-Carlo loses to one-step greedy
+### Flat Monte-Carlo: the multiplayer result survived, the heads-up one did not
 
 `mc` samples worlds and plays each candidate action out several times, which is
-strictly more information than greedy's single settled lookahead — and it loses
-32.5/67.5 heads-up, and comes second to greedy in every multiplayer field.
+strictly more information than greedy's single settled lookahead. On the invented
+map it lost 32.5/67.5 heads-up; on the printed map it wins 55.0/45.0. What did
+*not* change is the 3-player field, where it has come second to `greedy` every
+time (38.3/61.7 now).
 
-The reason is structural: `mc` has no tree, so it cannot see its own follow-up
-pips. An Arcs turn is a *sequence* of 1–4 dependent actions (build a starport,
-then build a ship at it; move in, then battle), and evaluating the first action
-of that sequence against a random continuation prices the setup at close to
-nothing. More sampling does not beat a better-shaped one-step value here.
+The structural argument for why `mc` should be weaker still holds: it has no
+tree, so it cannot see its own follow-up pips. An Arcs turn is a *sequence* of
+1–4 dependent actions (build a starport, then build a ship at it; move in, then
+battle), and evaluating the first action of that sequence against a random
+continuation prices the setup at close to nothing.
 
-### MCTS consistently scores less Power than greedy
+But the heads-up number no longer supports that argument, and the honest reading
+is that the argument was over-credited: a 22.5-point swing from a data edit means
+the original 67.5 was measuring the invented economy as much as the search
+shape. The multiplayer field is the more durable signal, and it is the weaker
+claim — `mc` is second, not beaten.
 
-Across every version of the rules, `mcts` finishes with lower mean Power than
-`greedy` (21.5 vs 24.5 now) and builds fewer cities, while staying level on
-wins. Rollouts are valued on final standing, not on Power, so the search has no
-reason to prefer a position that scores 40 and loses over one that scores 24
-and wins — greedy's evaluation is Power-shaped and cannot express that
-difference. That much has been stable even as the win rate moved around.
+### Greedy builds more cities; the Power gap did not survive
+
+Across every earlier version of the rules `mcts` finished with lower mean Power
+than `greedy` while staying level on wins, and that looked like a structural
+consequence of valuing rollouts on final standing rather than on Power: the
+search has no reason to prefer a position that scores 40 and loses over one that
+scores 24 and wins, and greedy's evaluation is Power-shaped and cannot express
+that difference.
+
+On the printed map the gap is gone (22.6 for `mcts` vs 21.3 for `greedy`). What
+survives is the city count — `greedy` builds 4.5 to `mcts`'s 4.0, and has in
+every run — which is the part its Power-shaped evaluation actually rewards. The
+Power gap itself was an artefact of the invented economy, and it is a good
+example of a plausible mechanism that fit four consecutive datasets and still was
+not the explanation.
 
 Remaining levers, roughly in order of expected value:
 
@@ -193,9 +242,17 @@ Remaining levers, roughly in order of expected value:
 - **Ambition timing.** No bot yet reasons about *when* to declare. The zero
   marker makes a declared lead card trivially surpassable, so declaring costs
   the initiative — a tradeoff none of the current evaluations model.
-- **Weight tuning.** `eval.ts` weights are hand-set. A CEM or paired-seed grid
-  search over them is the obvious next step and is likely worth more than
+- **Weight tuning.** `eval.ts` weights are hand-set, and the map correction gave
+  a concrete reason to expect gains: Relic and Psionic are the scarce planet
+  types but the evaluation prices all five resources alike, and Weapon — the
+  commonest type — scores no ambition at all. A CEM or paired-seed grid search
+  over the weights is the obvious next step and is likely worth more than
   further search depth.
+- **Batch size.** Every close matchup here has flipped at least once at 40–60
+  games. Nothing in this file separates `greedy`, `mc` and `mcts`, and nothing
+  will until batches are large enough to shrink a ±12 interval — which means
+  either 10× the games or paired-seed variance reduction, and the latter is
+  cheaper.
 - **Learned value function.** The state is large but regular (24 systems ×
   pieces, 5 ambitions, hand shape); a TD(λ) afterstate net is the natural
   follow-up once the Court is complete.

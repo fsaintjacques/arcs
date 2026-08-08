@@ -36,10 +36,13 @@ physical components rather than in the rulebook:
   `POWER_STATUS` in `court.ts` records each card's state and names what is
   missing, and tests keep it honest. The Unions and Cartels need state the
   engine does not have yet; the Vox cards need a When Secured decision node.
-- **The printed map and setup cards.** The map is structurally faithful
-  (6 clusters, 1 gate + 3 planets, ring adjacency, out-of-play clusters and path
-  markers) but the planet-type layout is invented, and setups are generated
-  rather than drawn from the 12 printed cards.
+- **Setup cards, and one detail of the map.** The map is now transcribed from the
+  printed board — all 18 planet types and building-slot counts, cross-checked
+  against the type distribution (Material 4, Fuel 4, Weapon 4, Relic 3,
+  Psionic 3) — on top of a structurally faithful graph (6 clusters, 1 gate + 3
+  planets, ring adjacency, out-of-play clusters and path markers). What remains
+  reconstructed is which intra-cluster planet pair a thick border splits, and
+  setups are generated rather than drawn from the 12 printed cards.
 
 Every such value is isolated, marked `// DATA-GAP:` in code, and catalogued in
 [docs/DATA-GAPS.md](docs/DATA-GAPS.md) with the reconstruction used and how to
@@ -165,50 +168,51 @@ comparison in this README wrong.
 
 ## Results
 
-Modest batches, and the caveats above apply — Guild card abilities are not
-dispatched yet and the map is not the printed one, so these describe *this
-engine's* Arcs.
+Modest batches, and the caveats above apply — 18 of 31 Guild abilities are not
+dispatched yet and the setups are generated, so these describe *this engine's*
+Arcs.
 
 Two players:
 
 | matchup | games | win % | mean Power |
 |---|---|---|---|
-| `random+` vs `random` | 40 | 52.5 / 47.5 | 3.9 / 4.1 |
-| `greedy` vs `random+` | 40 | **100.0** / 0.0 | 44.6 / 2.4 |
-| `greedy` vs `mc` | 40 | **67.5** / 32.5 | 32.0 / 20.0 |
-| `greedy` vs `mcts` | 60 | 55.0 / 45.0 | 24.5 / 21.5 |
+| `random+` vs `random` | 40 | 62.5 / 37.5 | 4.8 / 4.8 |
+| `greedy` vs `random+` | 40 | **100.0** / 0.0 | 42.6 / 2.0 |
+| `greedy` vs `mc` | 40 | 45.0 / 55.0 | 26.5 / 24.9 |
+| `greedy` vs `mcts` | 60 | 41.7 / 58.3 | 21.3 / 22.6 |
 
 Three players:
 
 | field | games | win % |
 |---|---|---|
-| `greedy`, `mc`, `random` | 60 | **65.0** / 35.0 / 0.0 |
+| `greedy`, `mc`, `random` | 60 | **61.7** / 38.3 / 0.0 |
 
-Three results are worth more than the ordering:
+**Read the intervals, not the ordering.** Exactly two claims here are supported:
+`greedy` beats `random+` 40–0, and `random` wins nothing against anything. Every
+other row sits inside a ±12–15 point interval, and every one of them has flipped
+at least once.
 
-**Flat Monte-Carlo loses to one-step greedy**, 22.5/77.5, despite sampling
-strictly more information. `mc` has no tree, so it cannot see its own follow-up
-pips — and an Arcs turn is a *sequence* of 1–4 dependent actions (build a
-starport, then build a ship at it; move in, then battle). Valuing the first
-action of that sequence against a random continuation prices the setup at
-nothing.
+**Component data moves the ladder more than agent design does.** `greedy` vs
+`mcts` has now flipped four times — 50/50 with inferred dice, 35/65 once the dice
+were corrected, 55/45 once Guild abilities went live, 41.7/58.3 once the map was
+transcribed. Three of those four flips came from *data*, not code. The map
+correction alone swung `greedy` vs `mc` by 22.5 points, larger than any change to
+an agent has produced.
 
-**`greedy` and `mcts` are not separated.** This matchup has now flipped three
-times — 50/50 with inferred dice, 35/65 once the dice were corrected, 55/45
-once Guild card abilities went live — every time within a ±12.6 interval. The
-honest reading is that these two agents are closer together than 60 games can
-resolve, and that the matchup is sensitive to exactly the rules details that
-kept turning out to be wrong. Separating them needs either many more games or
-two agents further apart.
+That is the main methodological result of the project: in a game this
+component-heavy, an engine built on plausible-looking reconstructed data will
+produce a confident and wrong strategy ranking, and the error is invisible from
+inside the numbers. It fit four consecutive datasets that `mcts` scores less
+Power than `greedy`; the map correction erased the gap.
 
-**`random+` is not actually better than `random`** — 52.5/47.5 is inside the
-±15.5 interval. "Never waste a turn" sounds like an improvement and is not one
-at this level, which is a useful reminder that a plausible heuristic is a
-hypothesis, not a fact.
+**Where the search should look next.** The printed map puts Relic and Psionic —
+the resources behind the Keeper and Empath ambitions — on only 3 planets each,
+while Weapon, which scores no ambition at all, sits on 4. `eval.ts` prices all
+five resources alike, so tuning those weights is now a concrete lead rather than
+a generic suggestion.
 
-Every row here has moved at least once as component data was corrected — first
-the battle dice, then the Guild card abilities. See
-[docs/FINDINGS.md](docs/FINDINGS.md) for what changed and why.
+See [docs/FINDINGS.md](docs/FINDINGS.md) for the evidence and the negative
+results.
 
 ## Layout
 
@@ -218,7 +222,7 @@ docs/DATA-GAPS.md      component data the rulebook omits, and how to correct it
 docs/FINDINGS.md       results, negative results, and methodology traps
 src/engine/            pure engine, no dependencies
   types.ts             core types; the decision-process contract
-  map.ts               the 6-cluster ring, adjacency, out-of-play clusters
+  map.ts               the 6-cluster ring, the transcribed planets, adjacency
   cards.ts             the 28-card action deck
   court.ts             Guild and Vox cards
   dice.ts              battle die faces
