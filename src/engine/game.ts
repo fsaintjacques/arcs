@@ -38,6 +38,19 @@ import { DICE_PER_TYPE, rollBattle } from './dice';
 import { flipLowestUnflipped, highestAvailable, scoreChapter } from './ambitions';
 import { isGate } from './map';
 import { compactResources, heldResources, openResourceSlots, raidCost } from './playerBoard';
+import {
+  applyCardAction,
+  applyCardPrelude,
+  cardActionCost,
+  cardActions,
+  extraBattleDice,
+  loyalTypes,
+  preludeCardActions,
+  skipsZeroMarker,
+  survivesOutrage,
+  theftImmune,
+  theftImmunityCard,
+} from './powers';
 import { shuffle } from './rng';
 import type {
   Action,
@@ -175,12 +188,21 @@ function preludeActions(s: GameState, v: VariantDef): Action[] {
   const seen = new Set<ResourceType>();
   for (let i = 0; i < openResourceSlots(p); i++) {
     const r = p.resources[i];
-    if (!r || p.outrage[r] || seen.has(r)) continue;
-    if (r === 'psionic' && !s.round.lead) continue;
+    if (!r || seen.has(r)) continue;
     seen.add(r);
-    acts.push({ t: 'spendResource', slot: i });
+    if (!p.outrage[r] && !(r === 'psionic' && !s.round.lead)) {
+      acts.push({ t: 'spendResource', slot: i });
+    }
+    // A Loyal card lets any resource be spent as its type, ignoring Outrage
+    // on the type being spent as (p20 rules hierarchy, "ignore").
+    for (const as of loyalTypes(p)) {
+      if (as === r) continue;
+      if (as === 'psionic' && !s.round.lead) continue;
+      acts.push({ t: 'spendResourceAs', slot: i, as });
+    }
   }
 
+  acts.push(...preludeCardActions(s, v, turn.player));
   acts.push({ t: 'beginActions' });
   return acts;
 }
@@ -223,6 +245,7 @@ function turnActions(s: GameState, v: VariantDef): Action[] {
   if (kinds.has('influence')) acts.push(...influenceActions(s, player));
   if (kinds.has('secure')) acts.push(...secureActions(s, player));
   if (kinds.has('battle')) acts.push(...battleSetupActions(s, v, player));
+  acts.push(...cardActions(s, player, kinds as Set<string>));
 
   acts.push({ t: 'endTurn' });
   return acts;
@@ -334,7 +357,7 @@ function battleSetupActions(s: GameState, v: VariantDef, player: number): Action
       const defendingBuildings = s.systems[system].buildings.some((b) => b.player === defender);
       const raidAllowed = defendingBuildings || !hasAnyBuilding(s, defender);
       // "1 die per attacking ship ... you cannot collect more than 6 of a type"
-      const max = Math.min(attacking, DICE_PER_TYPE * 3);
+      const max = Math.min(attacking + extraBattleDice(s.playerStates[player], system), DICE_PER_TYPE * 3);
       for (let a = 0; a <= Math.min(DICE_PER_TYPE, max); a++) {
         for (let sk = 0; sk <= Math.min(DICE_PER_TYPE, max - a); sk++) {
           const maxRaid = raidAllowed ? Math.min(DICE_PER_TYPE, max - a - sk) : 0;
@@ -392,13 +415,20 @@ function battleActions(s: GameState, v: VariantDef): Action[] {
   // Raiding needs surviving attacking ships (p14 step 4.5).
   if (b.keys > 0 && shipsOf(s, b.system, b.attacker) > 0) {
     const victim = s.playerStates[b.defender];
-    for (let slot = 0; slot < openResourceSlots(victim); slot++) {
-      if (victim.resources[slot] && raidCost(slot) <= b.keys) {
-        acts.push({ t: 'raidResource', slot });
+    // Sworn Guardians: "Rivals cannot steal your resources and other Guild
+    // cards. (In battle they can steal this first and then spend keys.)"
+    const shield = theftImmune(victim) ? theftImmunityCard(victim) : null;
+    if (shield !== null) {
+      if (courtCard(shield).raidCost <= b.keys) acts.push({ t: 'raidCard', card: shield });
+    } else {
+      for (let slot = 0; slot < openResourceSlots(victim); slot++) {
+        if (victim.resources[slot] && raidCost(slot) <= b.keys) {
+          acts.push({ t: 'raidResource', slot });
+        }
       }
-    }
-    for (const card of victim.guildCards) {
-      if (courtCard(card).raidCost <= b.keys) acts.push({ t: 'raidCard', card });
+      for (const card of victim.guildCards) {
+        if (courtCard(card).raidCost <= b.keys) acts.push({ t: 'raidCard', card });
+      }
     }
     acts.push({ t: 'raidDone' });
     return acts;
@@ -513,6 +543,16 @@ export function applyActionMut(s: GameState, v: VariantDef, a: Action): void {
       spendResource(s, a.slot);
       return;
     }
+    case 'spendResourceAs': {
+      // A Loyal card: the token leaves your board, but its Prelude action is
+      // the one printed for the type you are spending it as.
+      spendResource(s, a.slot, a.as);
+      return;
+    }
+    case 'cardPrelude': {
+      applyCardPrelude(s, v, a);
+      return;
+    }
     case 'beginActions': {
       endPrelude(s);
       return;
@@ -604,6 +644,7 @@ function playCard(s: GameState, v: VariantDef, a: Action): void {
     declaredThisTurn: false,
     preludeSpent: [],
     securedThisPrelude: [],
+    cardPreludesUsed: [],
   };
   s.phase = 'prelude';
 }
@@ -615,18 +656,24 @@ function declareAmbition(s: GameState, v: VariantDef, ambition: AmbitionId): voi
   s.declared[ambition].push(marker);
   s.turn!.declaredThisTurn = true;
   // "Place the zero marker onto the lead card ... its card number is now 0."
-  s.round.leadNumber = 0;
+  // Secret Order exempts Keeper and Empath.
+  if (!skipsZeroMarker(s.playerStates[s.turn!.player], ambition)) s.round.leadNumber = 0;
   s.stats.ambitionsDeclared++;
 }
 
-/** Prelude resource actions (p17). */
-function spendResource(s: GameState, slot: number): void {
+/**
+ * Prelude resource actions (p17). `as` is set when a Loyal Guild card lets the
+ * token be spent as a different type: the token returned to the supply is the
+ * real one, but the action taken is the one printed for `as`.
+ */
+function spendResource(s: GameState, slot: number, as?: ResourceType): void {
   const turn = s.turn!;
   const p = s.playerStates[turn.player];
-  const r = p.resources[slot];
-  if (!r) throw new Error('no resource in that slot');
+  const real = p.resources[slot];
+  if (!real) throw new Error('no resource in that slot');
+  const r = as ?? real;
   p.resources[slot] = null;
-  turn.preludeSpent.push(r);
+  turn.preludeSpent.push(real);
 
   switch (r) {
     case 'material':
@@ -752,6 +799,11 @@ function performAction(s: GameState, v: VariantDef, a: Action): void {
     case 'secure': {
       payFor(s, 'secure');
       secureCard(s, v, player, a.slot, false);
+      break;
+    }
+    case 'cardAction': {
+      payFor(s, cardActionCost(a.card, a.name));
+      applyCardAction(s, player, a.card, a.name);
       break;
     }
     case 'battle': {
@@ -999,7 +1051,8 @@ function destroyCity(
     }
     const kept: number[] = [];
     for (const card of p.guildCards) {
-      if (courtCard(card).suit === type) s.courtDiscard.push(card);
+      // "If you Provoke Outrage, keep this card" — the Loyal cards (p20).
+      if (courtCard(card).suit === type && !survivesOutrage(card)) s.courtDiscard.push(card);
       else kept.push(card);
     }
     p.guildCards = kept;
@@ -1037,9 +1090,12 @@ function settleBattle(s: GameState, v: VariantDef): void {
   if (b.buildingHits > 0 && !defenderBuildings) b.buildingHits = 0;
   if (b.keys > 0) {
     const victim = s.playerStates[b.defender];
+    const shield = theftImmune(victim) ? theftImmunityCard(victim) : null;
     const canSteal =
-      victim.resources.some((r, i) => r !== null && raidCost(i) <= b.keys) ||
-      victim.guildCards.some((c) => courtCard(c).raidCost <= b.keys);
+      shield !== null
+        ? courtCard(shield).raidCost <= b.keys
+        : victim.resources.some((r, i) => r !== null && raidCost(i) <= b.keys) ||
+          victim.guildCards.some((c) => courtCard(c).raidCost <= b.keys);
     if (!canSteal || shipsOf(s, b.system, b.attacker) === 0) b.keys = 0;
   }
 

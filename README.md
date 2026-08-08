@@ -31,10 +31,11 @@ physical components rather than in the rulebook:
 
 - **Guild and Vox card abilities.** All 31 cards are present with their real
   names, suits, raid costs and printed text, so influence, secure, raid, Outrage
-  discards and the Tycoon / Keeper / Empath counts are exact — but the printed
-  *abilities* are not dispatched yet. `IMPLEMENTED_POWERS` in `court.ts` tracks
-  what is wired up, and a test keeps that list honest. Until it is complete,
-  bots under-value the Court.
+  discards and the Tycoon / Keeper / Empath counts are exact. Of the printed
+  *abilities*, **13 are fully dispatched, 6 partially, 12 not yet** —
+  `POWER_STATUS` in `court.ts` records each card's state and names what is
+  missing, and tests keep it honest. The Unions and Cartels need state the
+  engine does not have yet; the Vox cards need a When Secured decision node.
 - **The printed map and setup cards.** The map is structurally faithful
   (6 clusters, 1 gate + 3 planets, ring adjacency, out-of-play clusters and path
   markers) but the planet-type layout is invented, and setups are generated

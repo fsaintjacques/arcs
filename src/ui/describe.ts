@@ -89,6 +89,18 @@ export function describeAction(a: Action, s: GameState, v: VariantDef): string {
       };
       return `Spend ${r} — ${effect[r ?? '']}`;
     }
+    case 'spendResourceAs': {
+      const r = s.playerStates[s.turn!.player].resources[a.slot];
+      return `Spend ${r} as ${a.as} (Loyal card)`;
+    }
+    case 'cardPrelude': {
+      const card = courtCard(a.card);
+      const where = a.system !== undefined ? ` at ${systemLabel(v, a.system)}` : '';
+      const from = a.target !== undefined ? ` from ${PLAYER_NAMES[a.target]}` : '';
+      return `${card.name} Prelude${where}${from}`;
+    }
+    case 'cardAction':
+      return `${a.name} — ${courtCard(a.card).name}`;
     case 'beginActions':
       return 'End Prelude, start spending pips';
     case 'tax': {
@@ -155,7 +167,11 @@ export function actionGroup(a: Action): string {
     case 'seize':
       return 'Seize the initiative';
     case 'spendResource':
+    case 'spendResourceAs':
+    case 'cardPrelude':
       return 'Prelude: spend resources';
+    case 'cardAction':
+      return 'Guild card action';
     case 'tax':
       return 'Tax';
     case 'buildShip':

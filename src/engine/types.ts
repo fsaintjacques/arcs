@@ -244,6 +244,8 @@ export interface TurnState {
   preludeSpent: ResourceType[];
   /** Court cards secured this turn: their Preludes are unusable (p20). */
   securedThisPrelude: number[];
+  /** Guild cards whose once-per-turn Prelude has already been used. */
+  cardPreludesUsed: number[];
 }
 
 /** A battle mid-resolution. */
@@ -347,11 +349,17 @@ export type Action =
   | { t: 'declareAmbition'; ambition: AmbitionId }
   | { t: 'seize'; card: number }
   | { t: 'spendResource'; slot: number }
+  /** Spend a resource as another type, via a Loyal Guild card (p20). */
+  | { t: 'spendResourceAs'; slot: number; as: ResourceType }
+  /** Use a Guild card's `Prelude:` ability. Most discard the card. */
+  | { t: 'cardPrelude'; card: number; system?: number; slot?: number; target?: number }
   | { t: 'beginActions' }
   // --- actions ---
   | { t: 'tax'; system: number; building: number }
   | { t: 'buildShip'; system: number; building: number }
   | { t: 'buildBuilding'; system: number; kind: BuildingKind }
+  /** A Guild card's new action, taken instead of the standard one it replaces. */
+  | { t: 'cardAction'; card: number; name: string }
   | { t: 'move'; from: number; to: number; ships: number }
   | { t: 'catapult'; to: number; ships: number }
   | { t: 'catapultStop' }

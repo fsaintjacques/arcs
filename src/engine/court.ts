@@ -391,17 +391,63 @@ export function courtRowSize(players: number): number {
 }
 
 /**
- * Cards whose printed ability the engine actually dispatches. Add a name here
- * only when its power is wired up *and* covered by a test.
+ * How much of each card's printed ability the engine actually dispatches.
+ *
+ *   `full`    — every clause works.
+ *   `partial` — some clauses work; the entry says which do not.
+ *   `none`    — the card is inert beyond its suit and raid cost.
  *
  * Everything else about every card — suit, raid cost, being influenced,
  * secured, stolen, discarded by Outrage and counted toward ambitions — already
- * works; only the printed ability is inert. Tracking this as data rather than
- * a comment lets a test assert the README's claim stays true.
+ * works regardless. Tracking this as data rather than prose lets a test assert
+ * that the README and DATA-GAPS claims stay true.
  */
-export const IMPLEMENTED_POWERS = new Set<string>([]);
+export const POWER_STATUS: Record<string, { status: 'full' | 'partial' | 'none'; missing?: string }> = {
+  // --- fully dispatched -----------------------------------------------------
+  'Loyal Engineers': { status: 'full' },
+  'Loyal Pilots': { status: 'full' },
+  'Loyal Marines': { status: 'full' },
+  'Loyal Empaths': { status: 'full' },
+  'Loyal Keepers': { status: 'full' },
+  'Mining Interest': { status: 'full' },
+  'Shipping Interest': { status: 'full' },
+  Gatekeepers: { status: 'full' },
+  'Lattice Spies': { status: 'full' },
+  'Secret Order': { status: 'full' },
+  'Silver-Tongues': { status: 'full' },
+  'Sworn Guardians': { status: 'full' },
+  'Relic Fence': { status: 'full' },
 
-/** The complement: cards carrying an ability the engine does not act on yet. */
-export const UNIMPLEMENTED_POWERS: string[] = COURT_DECK.filter(
-  (c) => (c.power !== undefined || c.vox !== undefined) && !IMPLEMENTED_POWERS.has(c.name),
-).map((c) => c.name);
+  // --- Prelude works, the rest does not ------------------------------------
+  'Material Cartel': { status: 'partial', missing: 'holding the Material supply on the card' },
+  'Fuel Cartel': { status: 'partial', missing: 'holding the Fuel supply on the card' },
+  'Prison Wardens': { status: 'partial', missing: 'Pressgang (Build) and Execute (Influence)' },
+  Skirmishers: { status: 'partial', missing: 'rerolling skirmish dice' },
+  'Court Enforcers': { status: 'partial', missing: 'Abduct (Battle)' },
+  'Elder Broker': { status: 'partial', missing: 'Trade (Tax)' },
+
+  // --- not dispatched -------------------------------------------------------
+  'Admin Union': { status: 'none', missing: 'attaching to a played card' },
+  'Construction Union': { status: 'none', missing: 'attaching to a played card' },
+  'Spacing Union': { status: 'none', missing: 'attaching to a played card' },
+  'Arms Union': { status: 'none', missing: 'attaching to a played card' },
+  Farseers: { status: 'none', missing: 'peeking at a Rival hand and swapping' },
+  'Galactic Bards': { status: 'none', missing: 'declaring on a Surpass or Pivot' },
+  'Mass Uprising': { status: 'none', missing: 'When Secured' },
+  'Populist Demands': { status: 'none', missing: 'When Secured' },
+  'Outrage Spreads': { status: 'none', missing: 'When Secured' },
+  'Song of Freedom': { status: 'none', missing: 'When Secured' },
+  'Guild Struggle': { status: 'none', missing: 'When Secured' },
+  'Call to Action': { status: 'none', missing: 'When Secured' },
+};
+
+export const IMPLEMENTED_POWERS = new Set(
+  Object.entries(POWER_STATUS)
+    .filter(([, v]) => v.status === 'full')
+    .map(([k]) => k),
+);
+
+/** Cards carrying an ability the engine does not fully act on yet. */
+export const UNIMPLEMENTED_POWERS: string[] = Object.entries(POWER_STATUS)
+  .filter(([, v]) => v.status !== 'full')
+  .map(([k]) => k);

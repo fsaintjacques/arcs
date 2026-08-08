@@ -14,7 +14,7 @@ space, and the agent API are all independent of these values.
 | 1 | Ambition marker reverse sides | `src/engine/ambitions.ts` | medium — one of three confirmed |
 | 2 | Map planet types, slots, adjacency | `src/engine/map.ts` | low — structurally faithful, layout invented |
 | 3 | Setup cards | `src/engine/setup.ts` | low — generated symmetrically, not the printed 12 |
-| 4 | Guild / Vox ability *dispatch* | `src/engine/court.ts` | card data is exact; abilities not yet acted on |
+| 4 | Guild / Vox ability *dispatch* | `src/engine/court.ts` | data exact; 13 of 31 abilities fully dispatched |
 | 5 | Player board economy | `src/engine/playerBoard.ts` | low |
 
 **Closed:** battle die faces (official aid booklet p3 prints all six faces of
@@ -86,11 +86,18 @@ legible in the rulebook itself (01 Loyal Engineers, 03 Material Cartel, 04
 Admin Union, 09 Shipping Interest, 11 Arms Union, 15 Loyal Marines, 18 Secret
 Order) and all seven agree with the transcription, which pins the ordering.
 
-What remains is **dispatching the abilities**. Each card's power is encoded in
-a typed `CardPower` / `VoxEffect` so the engine can act on it, but the
-dispatch is not written yet. `IMPLEMENTED_POWERS` in `court.ts` lists what is
-wired up and `UNIMPLEMENTED_POWERS` is its complement; a test asserts the two
-account for every card carrying an ability, so this document cannot drift.
+What remains is **dispatching the rest of the abilities**. `POWER_STATUS` in
+`court.ts` records each card as `full`, `partial` or `none` and names what is
+missing; tests assert every card carrying an ability is classified and that
+anything short of `full` says why, so this document cannot drift.
+
+As of now: **13 full, 6 partial, 12 none**.
+
+| status | cards |
+|---|---|
+| full | the 5 Loyal cards, Mining Interest, Shipping Interest, Gatekeepers, Lattice Spies, Secret Order, Silver-Tongues, Sworn Guardians, Relic Fence |
+| partial (Prelude works, rest does not) | both Cartels, Prison Wardens, Skirmishers, Court Enforcers, Elder Broker |
+| none | the 4 Union cards, Farseers, Galactic Bards, and all 6 Vox |
 
 Everything else about every card already works exactly as printed: suit counts
 toward Tycoon / Keeper / Empath, Weapon cards count toward nothing, raid costs
@@ -107,9 +114,10 @@ The abilities fall into the three kinds the rulebook names (p20):
 
 (Cards can appear in more than one row.)
 
-Until the dispatch lands, bot results still describe a simplified Arcs: the
-Court is worth its ambition icons and nothing more, so bots under-value
-Influence and Secure relative to the real game.
+The two structural pieces still missing are the **Unions** (attach to a played
+card, draw it at the end of the round) and the **Cartels** (hold a resource
+supply on the card) — both need state that does not exist yet. The Vox cards
+each need a `When Secured` decision node.
 
 ## 5. Player board economy
 

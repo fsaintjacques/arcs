@@ -138,6 +138,7 @@ export function cloneState(s: GameState): GameState {
           freeActions: s.turn.freeActions.map((f) => f.slice()),
           preludeSpent: s.turn.preludeSpent.slice(),
           securedThisPrelude: s.turn.securedThisPrelude.slice(),
+          cardPreludesUsed: s.turn.cardPreludesUsed.slice(),
         }
       : null,
     battle: s.battle ? { ...s.battle, dice: { ...s.battle.dice } } : null,

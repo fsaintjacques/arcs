@@ -6,6 +6,7 @@ export * from './court';
 export * from './dice';
 export * from './ambitions';
 export * from './playerBoard';
+export * from './powers';
 export * from './board';
 export * from './setup';
 export * from './game';
