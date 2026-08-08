@@ -13,7 +13,7 @@ space, and the agent API are all independent of these values.
 |---|---|---|---|
 | 1 | Ambition marker reverse sides | `src/engine/ambitions.ts` | medium — one of three confirmed |
 | 2 | Intra-cluster planet adjacency | `src/engine/map.ts` | medium — types and slots now read off the board; which pair a thick border splits is not |
-| 3 | Setup cards | `src/engine/setup.ts` | low — generated symmetrically, not the printed 12 |
+| 3 | Setup cards | `src/engine/setup.ts` | low — a random legal draw, not the printed 12 |
 | 4 | Player board economy | `src/engine/playerBoard.ts` | low |
 
 **Closed:** battle die faces (official aid booklet p3 prints all six faces of
@@ -152,18 +152,39 @@ as [engine rulings](RULES.md#11-engine-rulings).
 ## 3. Setup cards
 
 The box has 12 setup cards (4 each for 2, 3 and 4 players). Their contents are
-not in the rulebook. `setup.ts` instead **generates** setups that obey every
-setup rule the rulebook does state:
+not in the rulebook, so `setup.ts` **draws** a random legal opening instead,
+seeded so the same value always reproduces the same board.
 
-- the correct number of out-of-play clusters (2 for 2–3 players, 1 for 4),
-- one A, one B and one C system per player (two C systems at 2 players),
-- starting systems spread symmetrically around the ring, never in an
-  out-of-play cluster, and never shared between players,
-- A and B are always planets (they receive a city and a starport).
+Every rule the rulebook does state is obeyed:
 
-`--setup <n>` / `setupIndex` selects among the generated layouts, so batches
-still vary. To use the printed cards instead, replace `generateSetup()` with a
-literal table of the 12 setups.
+- the correct number of out-of-play clusters (2 for 2–3 players, 1 for 4), each
+  taking its gate and the 3 planets touching it (p4 step J),
+- one A, one B and one C system per player, two C systems at 2 players,
+- A and B are planets — they take a city and a starport, and their printed
+  resource is gained at step O,
+- nothing starts in an out-of-play cluster, and no system is shared.
+
+`--setup <n>` / `setupIndex` seeds the draw. It used to index six fixed
+rotations, which meant a thousand-deal batch only ever saw six opening
+positions; it now yields about 3000 distinct boards per player count over 3000
+seeds, verified along with legality in `rules.test.ts`.
+
+**What one printed card tells us.** The rulebook's component photo (p3) shows
+*2 Players – Frontiers* legibly enough to read its layout, and it corrects an
+assumption the old generator made: `1A` and `1B` sit in **different clusters**,
+and the two `1C`s are scattered rather than adjacent. Real setups spread a
+player across the map instead of giving them a home cluster. The draw now
+follows that — B lands in a neighbouring cluster about half the time — but the
+printed cards are hand-designed for balance in a way a uniform draw is not, so
+this is a fair opening rather than a faithful one.
+
+Randomising is only safe because the batch runner pairs deals (see
+[FINDINGS.md](FINDINGS.md)): a lopsided draw is played from every seat before it
+counts, so it cancels rather than becoming noise. Under the old unpaired runner
+this change would have made results worse.
+
+To use the printed cards instead, replace `generateSetup()` with a literal table
+of the 12.
 
 ## 4. Player board economy
 

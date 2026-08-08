@@ -15,6 +15,9 @@ import {
   standings,
   type Action,
   type GameState,
+  generateSetup,
+  isGate,
+  clusterOf,
 } from '../src/engine';
 import { actions, actor, ADMIN, AGGRESSION, apply, battleState, cardId, CONSTRUCTION, find, MOBILIZATION, setHand, settle, startGame } from './helpers';
 
@@ -55,6 +58,53 @@ describe('setup (p4-p5)', () => {
           expect(sys.buildings).toHaveLength(0);
         }
       }
+    }
+  });
+
+  it('draws a legal setup for any seed', () => {
+    // Openings are drawn rather than picked from a fixed rotation, so legality
+    // has to hold for every seed rather than for six hand-checked layouts.
+    for (const players of [2, 3, 4]) {
+      for (let seed = 0; seed < 400; seed++) {
+        const setup = generateSetup(players, seed);
+        const v = makeVariant(players, seed);
+        const dead = new Set(setup.outOfPlay);
+        const where = `${players}p seed ${seed}`;
+
+        expect(setup.outOfPlay, where).toHaveLength(players === 4 ? 1 : 2);
+        expect(setup.starts, where).toHaveLength(players);
+
+        const all: number[] = [];
+        for (const st of setup.starts) {
+          all.push(st.a, st.b, ...st.c);
+          // A and B take a city and a starport and yield a resource at step O,
+          // so both must be planets.
+          expect(v.systems[st.a].planetType, where).not.toBeNull();
+          expect(v.systems[st.b].planetType, where).not.toBeNull();
+          expect(st.c, where).toHaveLength(players === 2 ? 2 : 1);
+          for (const s of st.c) expect(isGate(s), where).toBe(true);
+          for (const s of [st.a, st.b, ...st.c]) {
+            expect(dead.has(clusterOf(s)), `${where}: system ${s} in a dead cluster`).toBe(false);
+          }
+        }
+        // No two players may share a starting system.
+        expect(new Set(all).size, `${where}: shared start`).toBe(all.length);
+      }
+    }
+  });
+
+  it('is reproducible from its seed, and varies across seeds', () => {
+    // Both halves matter: `makeVariant` and `newGame` derive the setup
+    // independently and must agree, and a batch has to see more than a handful
+    // of boards or every measurement averages the same few openings.
+    for (const players of [2, 3, 4]) {
+      const seen = new Set<string>();
+      for (let seed = 0; seed < 200; seed++) {
+        const a = generateSetup(players, seed);
+        expect(generateSetup(players, seed)).toEqual(a);
+        seen.add(JSON.stringify([a.outOfPlay, a.starts]));
+      }
+      expect(seen.size, `${players}p distinct setups`).toBeGreaterThan(150);
     }
   });
 

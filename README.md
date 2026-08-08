@@ -38,8 +38,11 @@ the physical components rather than in the rulebook:
   against the type distribution (Material 4, Fuel 4, Weapon 4, Relic 3,
   Psionic 3) — on top of a structurally faithful graph (6 clusters, 1 gate + 3
   planets, ring adjacency, out-of-play clusters and path markers). What remains
-  reconstructed is which intra-cluster planet pair a thick border splits, and
-  setups are generated rather than drawn from the 12 printed cards.
+  reconstructed is which intra-cluster planet pair a thick border splits.
+  Openings are a **random legal draw** rather than the printed 12 setup cards:
+  every stated setup rule is obeyed and roughly 3000 distinct boards are
+  reachable per player count, but the printed cards are hand-designed for
+  balance in a way a uniform draw is not.
 
 Every such value is isolated, marked `// DATA-GAP:` in code, and catalogued in
 [docs/DATA-GAPS.md](docs/DATA-GAPS.md) with the reconstruction used and how to
@@ -186,7 +189,7 @@ npm run sim -- --help
 | `--agents` | `greedy,greedy,greedy` | one per seat; 2–4 of them sets the player count |
 | `--games` | 100 | batch size |
 | `--seed` | 1 | games are fully reproducible from this |
-| `--setup` | 0 | starting setup; each game rotates on from here |
+| `--setup` | 0 | seeds the opening position; each deal draws a different legal map |
 | `--opts` | — | JSON passed to every agent |
 | `--no-rotate` | off | keep seats fixed instead of permuting |
 | `--unpaired` | off | give every game its own deal (noisy and biased; for contrast only) |
@@ -207,27 +210,36 @@ it.
 
 ## Results
 
-All from the **paired** harness — every deal played from every seating, so no
-agent can draw a friendlier set of starting positions than another. Numbers this
-project published before that fix are not comparable; see below.
+All from the **paired** harness on **randomly drawn opening positions** — every
+deal played from every seating, so no agent can draw a friendlier map than
+another. Numbers this project published before these two fixes are not
+comparable; see below.
 
 Two players:
 
-| matchup | games | deals | win % | paired difference |
-|---|---|---|---|---|
-| `greedy` vs `random+` | 120 | 60 | **100.0** / 0.0 | +100.0 ±0.0 |
-| `greedy` vs `mc` | 120 | 60 | **65.8** / 34.2 | +31.7 ±15.1 |
-| `mcts` vs `greedy` | 120 | 60 | **65.0** / 35.0 | +30.0 ±17.0 |
-| `random+` vs `random` | 2000 | 1000 | **59.0** / 41.0 | +18.0 ±4.2 |
+| matchup | games | deals | win % | paired difference | separated |
+|---|---|---|---|---|---|
+| `greedy` vs `random+` | 120 | 60 | **100.0** / 0.0 | +100.0 ±0.0 | yes |
+| `mcts` vs `greedy` | 120 | 60 | **69.2** / 30.8 | +38.3 ±17.5 | yes |
+| `random+` vs `random` | 2000 | 1000 | **59.7** / 40.3 | +19.4 ±4.3 | yes |
+| `greedy` vs `mc` | 120 | 60 | 56.7 / 43.3 | +13.3 ±17.1 | **no** |
 
 Three players:
 
 | field | games | deals | win % |
 |---|---|---|---|
-| `greedy`, `mc`, `random` | 180 | 30 | **62.8** / 37.2 / 0.0 |
+| `greedy`, `mc`, `random` | 180 | 30 | **60.6** / 39.4 / 0.0 |
 
-**Every rung separates**, which has not been true before:
-`mcts` > `greedy` > `mc` > `random+` > `random`.
+`mcts` > `greedy` > `mc` > `random+` > `random`, with `greedy` vs `mc` the one
+rung not settled head-to-head — though `greedy` still takes the 3-player field.
+
+**Openings are drawn, not fixed.** `setupIndex` used to select one of six
+rotations, so a thousand-deal batch replayed six boards. It now seeds a random
+legal setup — about 3000 distinct boards per player count — obeying every stated
+setup rule. That immediately cost one result its significance: `greedy` vs `mc`
+was +31.7 ±15.1 on the six openings and is +13.3 ±17.1 on drawn ones. Some of
+that edge was an edge *on those six boards*. Randomising is only safe because
+deals are paired: a lopsided draw is played from every seat before it counts.
 
 **The measurement was broken, and finding that out was worth more than any result
 it produced.** The batch runner advanced the seed *and* the setup index on every

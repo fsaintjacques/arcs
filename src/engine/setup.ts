@@ -12,7 +12,7 @@ import { AMBITION_MARKERS } from './ambitions';
 import { COURT_DECK, courtRowSize } from './court';
 import { buildSystems, clusterOf, gateId, planetId, resolveAdjacency, CLUSTER_COUNT } from './map';
 import { gainResource, newPlayerState, AGENTS } from './playerBoard';
-import { shuffle } from './rng';
+import { mulberry32, pick, shuffle } from './rng';
 import type { AmbitionId, GameState, ResourceType, RNG, SystemState, VariantDef } from './types';
 import { AMBITIONS, RESOURCE_TYPES } from './types';
 
@@ -30,38 +30,91 @@ export interface SetupCard {
 }
 
 /**
- * Generate a setup for `players` at rotation `index`.
+ * Draw a random legal setup for `players`, determined entirely by `seed`.
  *
- * 1 cluster is removed at 4 players, 2 at 2-3 players (p4 step J). Removed
- * clusters sit opposite each other so the surviving ring stays balanced.
+ * `seed` was once an index into six fixed rotations, which meant a thousand-deal
+ * batch only ever saw six opening positions — every measurement was averaging
+ * over the same handful of boards. It now seeds a shuffle, so the same seed
+ * still reproduces the same setup exactly (which `makeVariant` and `newGame`
+ * both rely on to agree with each other) while distinct seeds give genuinely
+ * different maps.
+ *
+ * Randomising openings is only safe *because* the batch runner pairs deals: a
+ * lopsided draw is played from every seat before it counts, so it cancels
+ * instead of becoming noise. Under the old unpaired runner this change would
+ * have made results worse, not better.
+ *
+ * Every stated setup rule is obeyed (p4 step J, p5 steps N-O):
+ *
+ *   - 1 cluster out of play at 4 players, 2 at 2-3 (each takes its gate and all
+ *     3 planets touching it);
+ *   - one A, one B and one C system per player, two Cs at 2 players;
+ *   - A and B are planets, since they take a city and a starport and their
+ *     printed resource is gained at step O;
+ *   - nothing starts in an out-of-play cluster, and no system is shared.
  */
-export function generateSetup(players: number, index: number): SetupCard {
-  const rotation = ((index % CLUSTER_COUNT) + CLUSTER_COUNT) % CLUSTER_COUNT;
-  const outOfPlay =
-    players === 4
-      ? [rotation]
-      : [rotation, (rotation + CLUSTER_COUNT / 2) % CLUSTER_COUNT];
+export function generateSetup(players: number, seed: number): SetupCard {
+  // A private stream, so drawing a setup never disturbs the game's RNG and the
+  // two independent calls that build a game land on the same board.
+  const rng = mulberry32((Math.abs(Math.trunc(seed)) * 2654435761 + 0x5e70) >>> 0);
 
-  const live: number[] = [];
-  for (let c = 0; c < CLUSTER_COUNT; c++) {
-    if (!outOfPlay.includes((c + rotation) % CLUSTER_COUNT)) live.push((c + rotation) % CLUSTER_COUNT);
-  }
-  // `live` is ordered around the ring starting from the rotation offset.
-  const inPlay = live.filter((c) => !outOfPlay.includes(c));
+  const removed = players === 4 ? 1 : 2;
+  const order = shuffle(
+    Array.from({ length: CLUSTER_COUNT }, (_, c) => c),
+    rng,
+  );
+  const outOfPlay = order.slice(0, removed).sort((a, b) => a - b);
+  const live = order.slice(removed);
+
+  const claimed = new Set<number>();
+
+  /**
+   * Draw an unclaimed system, preferring the given clusters but never returning
+   * one already taken. Preference has to be able to fail: a player's B planet
+   * may spread into a neighbouring cluster and take the planet a later player
+   * would have wanted, so falling back to "anywhere live" is what keeps the
+   * no-sharing rule true rather than nearly true.
+   */
+  const take = (prefer: number[], kind: 'gate' | 'planet'): number => {
+    const of = (clusters: number[]) =>
+      clusters.flatMap((c) => (kind === 'gate' ? [gateId(c)] : [0, 1, 2].map((i) => planetId(c, i))));
+    const free = of(prefer).filter((s) => !claimed.has(s));
+    const anywhere = of(live).filter((s) => !claimed.has(s));
+    const from = free.length > 0 ? free : anywhere;
+    // The board always has room: 12-15 live planets and 4-5 live gates against
+    // at most 8 planets and 4 gates needed.
+    const chosen = pick(shuffle(from, rng), rng);
+    claimed.add(chosen);
+    return chosen;
+  };
 
   const starts = Array.from({ length: players }, (_, p) => {
-    const home = inPlay[Math.round((p * inPlay.length) / players) % inPlay.length];
-    const c = [gateId(home)];
-    if (players === 2) {
-      const second = inPlay[(inPlay.indexOf(home) + 1) % inPlay.length];
-      c.push(gateId(second));
-    }
-    return { a: planetId(home, 0), b: planetId(home, 1), c };
+    // Each player homes in a distinct live cluster.
+    const home = live[p % live.length];
+    const neighbours = [
+      (home + 1) % CLUSTER_COUNT,
+      (home + CLUSTER_COUNT - 1) % CLUSTER_COUNT,
+    ].filter((c) => live.includes(c));
+
+    // A sits in the home cluster. B often sits in a neighbouring one: the
+    // printed cards spread a player's two planets rather than stacking them,
+    // which is what makes the opening moves matter.
+    const a = take([home], 'planet');
+    const b = take(neighbours.length > 0 && rng() < 0.5 ? neighbours : [home], 'planet');
+
+    const c = [take([home], 'gate')];
+    if (players === 2) c.push(take(neighbours, 'gate'));
+    return { a, b, c };
   });
 
-  return { name: `${players} Players - Ring ${rotation + 1}`, outOfPlay, starts };
+  return { name: `${players} Players - Draw ${seed}`, outOfPlay, starts };
 }
 
+/**
+ * Build a variant. `setupIndex` seeds the setup draw — see `generateSetup`.
+ * The same value always yields the same board, which is what lets `newGame`
+ * derive an identical setup without the two having to share state.
+ */
 export function makeVariant(players: number, setupIndex = 0): VariantDef {
   const setup = generateSetup(players, setupIndex);
   return {

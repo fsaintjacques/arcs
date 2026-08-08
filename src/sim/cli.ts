@@ -30,7 +30,8 @@ if (args.help === 'true') {
                available: ${agentNames().join(', ')}
   --games      batch size (default 100)
   --seed       base seed; games are fully reproducible from it (default 1)
-  --setup      starting setup index (default 0; each game rotates on from here)
+  --setup      seeds the opening position (default 0); each deal draws a
+               different legal map from here
   --opts       JSON passed to every agent, e.g. '{"iterations":800}'
   --no-rotate  keep seats fixed instead of rotating agents through them
   --unpaired   give every game its own deal instead of holding it fixed across
