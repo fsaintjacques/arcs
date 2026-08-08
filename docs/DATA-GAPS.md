@@ -12,7 +12,7 @@ space, and the agent API are all independent of these values.
 | # | Datum | Module | Confidence |
 |---|---|---|---|
 | 1 | Ambition marker reverse sides | `src/engine/ambitions.ts` | medium — one of three confirmed |
-| 2 | Map planet types, slots, adjacency | `src/engine/map.ts` | low — structurally faithful, layout invented |
+| 2 | Map planet types, slots, adjacency | `src/engine/map.ts` | low — invented, but a legible source is now identified |
 | 3 | Setup cards | `src/engine/setup.ts` | low — generated symmetrically, not the printed 12 |
 | 4 | Guild / Vox ability *dispatch* | `src/engine/court.ts` | data exact; 13 of 31 abilities fully dispatched |
 | 5 | Player board economy | `src/engine/playerBoard.ts` | low |
@@ -60,6 +60,42 @@ monoculture. It is *a* legal Reach, not *the* Reach.
 
 To correct: replace `CLUSTERS` in `map.ts` — each entry lists its 3 planets as
 `{ type, slots }`.
+
+### A usable source exists
+
+The **high-resolution base rulebook** (27 MB, as shipped in the ArcsFates
+repo — not the 5 MB web copy) contains the full board illustration on page 4,
+and it is legible. Extract it with:
+
+```bash
+pdfimages -f 4 -l 4 -png "Arcs Base Rulebook.pdf" out    # out-003.png, 2016x1375
+```
+
+At 2.3× magnification the per-planet detail reads cleanly:
+
+- **building slots** — count the outlined triangles on each planet (1 or 2);
+- **planet type** — a filled badge beside each planet: gold coin-stack = Fuel,
+  orange/magenta cube = Material, orange rocket = Weapon, blue oval face =
+  Psionic, pale diamond = Relic;
+- **gate numbering** — 1 at the top, then **2–6 clockwise** (confirmed);
+- **adjacency** — thin straight radial lines join adjacent planets, thick
+  irregular hand-drawn borders separate non-adjacent ones (p6).
+
+Confirmed on a first pass, working outward within each wedge:
+
+| cluster | planets (type, slots) | confidence |
+|---|---|---|
+| 1 | Weapon 2, Fuel 1, Material 2 | high |
+| 6 | Material 1, Fuel 2, Psionic 1 | high |
+| 3 | ?, Fuel 1, Weapon 2 | partial |
+| 5 | Relic ?, Weapon 1, Psionic 2 | partial |
+| 2, 4 | — | not yet read |
+
+Finishing this needs one careful pass over the six wedges — the badges are
+small and a couple of slot counts are ambiguous against the planets' line art,
+so it is worth doing deliberately rather than fast. Until then `CLUSTERS` stays
+as the invented layout, because a half-read map would be wrong silently, which
+is worse than being wrong on purpose and saying so.
 
 ## 3. Setup cards
 
