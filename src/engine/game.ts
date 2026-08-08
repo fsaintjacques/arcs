@@ -333,13 +333,13 @@ function battleSetupActions(s: GameState, v: VariantDef, player: number): Action
       // no Loyal buildings in any systems on the map." (p14)
       const defendingBuildings = s.systems[system].buildings.some((b) => b.player === defender);
       const raidAllowed = defendingBuildings || !hasAnyBuilding(s, defender);
+      // "1 die per attacking ship ... you cannot collect more than 6 of a type"
       const max = Math.min(attacking, DICE_PER_TYPE * 3);
-      for (let a = 0; a <= Math.min(max, DICE_PER_TYPE); a++) {
-        for (let sk = 0; sk + a <= Math.min(max, a + DICE_PER_TYPE); sk++) {
-          if (sk > DICE_PER_TYPE) break;
+      for (let a = 0; a <= Math.min(DICE_PER_TYPE, max); a++) {
+        for (let sk = 0; sk <= Math.min(DICE_PER_TYPE, max - a); sk++) {
           const maxRaid = raidAllowed ? Math.min(DICE_PER_TYPE, max - a - sk) : 0;
           for (let r = 0; r <= maxRaid; r++) {
-            if (a + sk + r === 0 || a + sk + r > max) continue;
+            if (a + sk + r === 0) continue;
             acts.push({ t: 'battle', system, defender, assault: a, skirmish: sk, raid: r });
           }
         }
@@ -860,7 +860,11 @@ function secureCard(
     if (s.turn) s.turn.securedThisPrelude.push(courtSlot.card);
   }
 
-  if (s.courtDeck.length === 0) s.courtDeck = shuffle(s.courtDiscard.splice(0), () => 0.5);
+  // Securing is a decision, not a chance node — the Court deck was shuffled at
+  // setup and is drawn in order. If it ever empties, the discard comes back in
+  // reverse, which keeps the refill a deterministic function of the state
+  // rather than smuggling in an RNG the caller did not provide.
+  if (s.courtDeck.length === 0) s.courtDeck = s.courtDiscard.splice(0).reverse();
   const next = s.courtDeck.pop();
   if (next !== undefined) {
     s.court[slot] = { card: next, agents: Array(s.players).fill(0) };

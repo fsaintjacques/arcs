@@ -158,32 +158,46 @@ comparison in this README wrong.
 
 ## Results
 
-Small batches, and the caveats above apply — Guild card powers are missing and
-the map is not the printed one, so these describe this engine's Arcs.
+Modest batches, and the caveats above apply — Guild card powers are missing and
+the map is not the printed one, so these describe *this engine's* Arcs.
 
-2 players, 40 games each, seed 11:
+Two players:
 
-| matchup | win % | mean Power |
+| matchup | games | win % | mean Power |
+|---|---|---|---|
+| `random+` vs `random` | 40 | **65.0** / 35.0 | 4.9 / 3.5 |
+| `greedy` vs `random+` | 40 | **100.0** / 0.0 | 43.0 / 2.4 |
+| `greedy` vs `mc` | 40 | **75.0** / 25.0 | 34.7 / 19.5 |
+| `greedy` vs `mcts` | 60 | 50.0 / 50.0 | 26.1 / 21.5 |
+
+Three and four players:
+
+| field | games | win % |
 |---|---|---|
-| `random+` vs `random` | **65.0** / 35.0 | 4.9 / 3.5 |
-| `greedy` vs `random+` | **100.0** / 0.0 | 43.0 / 2.4 |
-| `greedy` vs `mc` | **75.0** / 25.0 | 34.7 / 19.5 |
-| `mcts` vs `greedy` | **58.3** / 41.7 | 22.5 / 23.8 |
+| `greedy`, `mc`, `random` | 60 | **60.0** / 40.0 / 0.0 |
+| `greedy`, `greedy`, `mc`, `random` | 48 | **43.8** / 41.7 / 14.6 / 0.0 |
 
-`mcts` edges `greedy` while scoring slightly *less* Power — it wins closer
-games rather than bigger ones, which is what optimising win rate rather than
-score should look like. At these batch sizes the interval is ±20 points, so
-treat the last row as "roughly even, slight edge" rather than a ranking.
+Two results are worth more than the ordering:
 
-`mc` losing to `greedy` is the interesting negative result: flat Monte-Carlo
-has no tree, so it cannot see its own follow-up pips, and in Arcs a turn is a
-sequence of 1–4 dependent actions.
+**Flat Monte-Carlo loses to one-step greedy**, 25/75, despite sampling strictly
+more information. `mc` has no tree, so it cannot see its own follow-up pips —
+and an Arcs turn is a *sequence* of 1–4 dependent actions (build a starport,
+then build a ship at it; move in, then battle). Valuing the first action of
+that sequence against a random continuation prices the setup at nothing.
+
+**MCTS does not yet beat greedy** — exactly 50/50 over 60 games, well inside
+the ±12.7 interval, while scoring less Power (21.5 vs 26.1) and holding fewer
+ambition tokens. At 300 iterations against a branching factor in the hundreds,
+the tree is not paying for its cost. That is a finding about the current
+configuration, not a verdict on search; see
+[docs/FINDINGS.md](docs/FINDINGS.md) for what looks worth trying next.
 
 ## Layout
 
 ```
 docs/RULES.md          the rulebook as engine ground truth, with page cites
 docs/DATA-GAPS.md      component data the rulebook omits, and how to correct it
+docs/FINDINGS.md       results, negative results, and methodology traps
 src/engine/            pure engine, no dependencies
   types.ts             core types; the decision-process contract
   map.ts               the 6-cluster ring, adjacency, out-of-play clusters

@@ -286,7 +286,6 @@ export type Phase =
   | 'battleRoll' // chance: roll the collected battle dice
   | 'battleAssign' // decision: assign hits one at a time, then raid
   | 'reinforce' // decision: a wiped-out player places 3 ships in a gate
-  | 'chapterEnd' // internal: score, clean up, advance
   | 'over';
 
 export interface GameStats {
