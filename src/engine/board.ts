@@ -191,6 +191,8 @@ export function cloneState(s: GameState): GameState {
     unions: s.unions.map((u) => ({ ...u })),
     pendingVox: s.pendingVox ? { ...s.pendingVox } : null,
     peek: s.peek ? { ...s.peek } : null,
+    revealed: s.revealed.slice(),
+    declines: s.declines.map((d) => ({ ...d })),
     stats: { ...s.stats },
   };
 }

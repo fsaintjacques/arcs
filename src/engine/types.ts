@@ -365,6 +365,17 @@ export interface GameState {
   pendingVox: { card: number; player: number; resume: 'actions' | 'battle' } | null;
   /** Farseers: whose hand the player is looking at, and where to return to. */
   peek: { player: number; target: number | null; resume: Phase } | null;
+  /**
+   * Public memory, reset each chapter. Everyone at the table saw these things,
+   * so `observe()` leaves them intact and `determinize()` is bound by them.
+   *
+   * `revealed` are action cards played face up and since discarded — they
+   * cannot be in anyone's hand. `declines` record a follower choosing not to
+   * Surpass, which is evidence they hold no card of that suit above that
+   * number; see `belief.ts`.
+   */
+  revealed: number[];
+  declines: { player: number; suit: Suit; number: number }[];
   stats: GameStats;
 }
 

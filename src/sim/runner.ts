@@ -93,7 +93,12 @@ export interface SimOptions extends Omit<PlayOptions, 'seed'> {
   seed: number;
   /** Cycle agents through every seating permutation (default true). */
   rotateSeats?: boolean;
-  onGame?: (result: GameResult, index: number, seating: number[]) => void;
+  /**
+   * Hold the deal fixed across each block of `n!` seatings (default true), so
+   * every agent meets the identical game in every seat. See `simulate`.
+   */
+  paired?: boolean;
+  onGame?: (result: GameResult, index: number, seating: number[], block: number) => void;
 }
 
 /** Every permutation of `n` seats, in a stable order. n <= 4, so at most 24. */
@@ -110,34 +115,60 @@ export function permutations(n: number): number[][] {
 
 export interface SimResult {
   /** Results in play order, plus the seating used for each. */
-  games: { result: GameResult; seating: number[] }[];
+  games: { result: GameResult; seating: number[]; block: number }[];
+  /** Games per block: `n!` when paired, otherwise 1. */
+  blockSize: number;
+  paired: boolean;
 }
 
 /**
  * Run a batch. `seating[seat] = agentIndex`.
  *
- * Seating cycles through every *permutation*, not just rotations. Rotating
- * alone leaves the agents' cyclic order fixed, and in a game with lead-and-
- * follow turn order that is a real advantage — sitting immediately after a
+ * Two variance controls, and they do different jobs:
+ *
+ * **Permuted seating.** Seating cycles through every *permutation*, not just
+ * rotations. Rotating alone leaves the agents' cyclic order fixed, and in a
+ * lead-and-follow game that is a real advantage — sitting immediately after a
  * weak player is worth several points a game — so two identical agents would
- * post very different win rates. Permuting removes it.
+ * post very different win rates.
+ *
+ * **Common random numbers.** The deal is held fixed across each block of `n!`
+ * seatings, so within a block every agent plays the *same game* from every
+ * seat. Without this the permutations are spread across `n!` unrelated deals
+ * and cancel nothing: the agent that happened to draw the better cards wins,
+ * and the comparison measures the shuffle. Pairing makes the deal a controlled
+ * variable instead of a source of noise, and `pairedStats` reads the resulting
+ * within-block differences — which is where the interval shrinks.
+ *
+ * `games` is rounded up to a whole number of blocks so no block is partial;
+ * a half-finished block would reintroduce exactly the seat bias permuting is
+ * there to remove.
  */
 export function simulate(agents: Agent[], opts: SimOptions): SimResult {
   const games: SimResult['games'] = [];
   const n = agents.length;
   const perms = permutations(n);
+  const rotate = opts.rotateSeats !== false;
+  const paired = rotate && opts.paired !== false;
+  const blockSize = paired ? perms.length : 1;
+  const blocks = Math.ceil(opts.games / blockSize);
 
-  for (let i = 0; i < opts.games; i++) {
-    const seating =
-      opts.rotateSeats === false ? Array.from({ length: n }, (_, seat) => seat) : perms[i % perms.length];
-    const seated = seating.map((agentIndex) => agents[agentIndex]);
-    const result = playGame(seated, {
-      ...opts,
-      seed: (opts.seed + i * 2654435761) >>> 0,
-      setupIndex: (opts.setupIndex ?? 0) + i,
-    });
-    games.push({ result, seating });
-    opts.onGame?.(result, i, seating);
+  let i = 0;
+  for (let block = 0; block < blocks; block++) {
+    // One deal per block when paired; one per game otherwise.
+    const dealIndex = paired ? block : i;
+    const seed = (opts.seed + dealIndex * 2654435761) >>> 0;
+    const setupIndex = (opts.setupIndex ?? 0) + dealIndex;
+
+    for (let k = 0; k < blockSize; k++, i++) {
+      const seating = rotate
+        ? perms[(paired ? k : i) % perms.length]
+        : Array.from({ length: n }, (_, seat) => seat);
+      const seated = seating.map((agentIndex) => agents[agentIndex]);
+      const result = playGame(seated, { ...opts, seed, setupIndex });
+      games.push({ result, seating, block });
+      opts.onGame?.(result, i, seating, block);
+    }
   }
-  return { games };
+  return { games, blockSize, paired };
 }

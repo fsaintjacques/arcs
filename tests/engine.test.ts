@@ -5,6 +5,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   applyAction,
+  actionCard,
   applyActionMut,
   cloneState,
   COURT_DECK,
@@ -19,7 +20,8 @@ import {
   type VariantDef,
 } from '../src/engine';
 import { makeAgent } from '../src/agents';
-import { playGame, permutations } from '../src/sim/runner';
+import { playGame, permutations, simulate } from '../src/sim/runner';
+import { pairedStats } from '../src/sim/stats';
 
 /** Drive a game to the end with a policy, returning every state it passed. */
 function driveTo(v: VariantDef, s: GameState, rng: () => number, pick: (n: number) => number) {
@@ -299,6 +301,85 @@ describe('imperfect information', () => {
     expect(seen.size).toBeGreaterThan(1);
   });
 
+  it('never deals back a card it watched being played', () => {
+    // Regression: `revealed` did not exist, so only the *current* round's plays
+    // were accounted for. Cards played face up in earlier rounds of the same
+    // chapter were forgotten and redealt into hands — in 65% of sampled worlds,
+    // 1.56 impossible cards apiece.
+    const v = makeVariant(3, 1);
+    const rng = mulberry32(99);
+    const s = newGame(v, rng, 1);
+    resolveChanceMut(s, v, rng);
+
+    const seen = new Set<number>();
+    for (let i = 0; i < 400; i++) {
+      const node = getPending(s, v);
+      if (node.kind === 'over') break;
+      if (node.kind === 'chance') {
+        if (s.phase === 'deal') seen.clear();
+        resolveChanceMut(s, v, rng);
+        continue;
+      }
+      const before = s.round.played.length;
+      applyActionMut(s, v, node.actions[Math.floor(rng() * node.actions.length)]);
+      for (const pc of s.round.played.slice(before)) if (!pc.faceDown) seen.add(pc.card);
+
+      if (seen.size >= 3) {
+        const obs = observe(s, v, 0);
+        // The observer's public memory holds every card they watched played.
+        for (const card of s.revealed) expect(seen.has(card)).toBe(true);
+        for (let w = 0; w < 6; w++) {
+          const world = determinize(obs, v, mulberry32(i * 131 + w));
+          for (let p = 0; p < 3; p++) {
+            for (const c of world.playerStates[p].hand) {
+              expect(s.revealed, `card ${c} was played and discarded`).not.toContain(c);
+            }
+          }
+        }
+      }
+    }
+    expect(seen.size).toBeGreaterThan(3);
+  });
+
+  it('forgets the public record when a new chapter is dealt', () => {
+    const v = makeVariant(3, 0);
+    const rng = mulberry32(7);
+    const s = newGame(v, rng, 0);
+    resolveChanceMut(s, v, rng);
+    s.revealed.push(0, 1);
+    s.declines.push({ player: 1, suit: 'aggression', number: 3 });
+    s.phase = 'deal';
+    resolveChanceMut(s, v, rng);
+    expect(s.revealed).toEqual([]);
+    expect(s.declines).toEqual([]);
+  });
+
+  it('records a decline whenever a follower does not Surpass', () => {
+    const v = makeVariant(3, 0);
+    const rng = mulberry32(3);
+    const s = newGame(v, rng, 0);
+    resolveChanceMut(s, v, rng);
+    if (s.phase === 'mulligan') applyActionMut(s, v, { t: 'mulligan', take: false });
+
+    const leader = s.round.turnOrder[0];
+    const lead = s.playerStates[leader].hand[0];
+    applyActionMut(s, v, { t: 'lead', card: lead });
+    const leadDef = actionCard(lead);
+    applyActionMut(s, v, { t: 'beginActions' });
+    while (s.turn) applyActionMut(s, v, { t: 'endTurn' });
+
+    const follower = s.round.turnOrder[s.round.turnIndex];
+    const own = s.playerStates[follower].hand[0];
+    applyActionMut(s, v, { t: 'follow', card: own, mode: 'copy' });
+
+    expect(s.declines).toHaveLength(1);
+    expect(s.declines[0]).toEqual({
+      player: follower,
+      suit: leadDef.suit,
+      number: leadDef.number,
+    });
+  });
+
   it('never invents a card the observer can already account for', () => {
     const { v, s } = midGame(3, 55);
     const obs = observe(s, v, 0);
@@ -318,5 +399,77 @@ describe('seating', () => {
     expect(permutations(3)).toHaveLength(6);
     expect(permutations(4)).toHaveLength(24);
     for (const p of permutations(4)) expect([...p].sort()).toEqual([0, 1, 2, 3]);
+  });
+});
+
+describe('paired measurement', () => {
+  it('gives every seating in a block the identical deal', () => {
+    const sim = simulate([makeAgent('random'), makeAgent('random')], {
+      players: 2,
+      games: 8,
+      seed: 5,
+    });
+    expect(sim.paired).toBe(true);
+    expect(sim.blockSize).toBe(2);
+
+    const byBlock = new Map<number, Set<number>>();
+    for (const { result, block } of sim.games) {
+      (byBlock.get(block) ?? byBlock.set(block, new Set()).get(block)!).add(result.seed);
+    }
+    // One seed per block, and a different one for each block.
+    const seeds: number[] = [];
+    for (const set of byBlock.values()) {
+      expect(set.size).toBe(1);
+      seeds.push([...set][0]);
+    }
+    expect(new Set(seeds).size).toBe(seeds.length);
+  });
+
+  it('cancels the deal exactly for two identical agents', () => {
+    // The point of common random numbers. Both seats play the same cards, so
+    // whichever seat wins a deal, its mirror hands the win to the other agent
+    // and the difference is exactly zero — no sampling noise at all.
+    const sim = simulate([makeAgent('greedy'), makeAgent('greedy')], {
+      players: 2,
+      games: 20,
+      seed: 31,
+    });
+    const paired = pairedStats(sim, ['a', 'b'], 0, 1)!;
+    expect(paired.diff).toBe(0);
+    expect(paired.ci).toBe(0);
+    expect(paired.separated).toBe(false);
+    expect(paired.tied).toBe(paired.blocks);
+  });
+
+  it('without pairing, an agent beats itself by chance', () => {
+    // The bug this replaced: seed and setup advanced every game, so the n!
+    // seatings never met the same deal and cancelled nothing. Identical agents
+    // then post a spurious gap, which is what made 60-game reads unreliable.
+    const sim = simulate([makeAgent('greedy'), makeAgent('greedy')], {
+      players: 2,
+      games: 40,
+      seed: 31,
+      paired: false,
+    });
+    let a = 0;
+    for (const { result, seating } of sim.games) if (seating[result.winner] === 0) a++;
+    expect(a).not.toBe(sim.games.length / 2);
+  });
+
+  it('rounds the batch up to whole blocks', () => {
+    // A partial block would leave one agent with an extra favourable seat,
+    // reintroducing the bias permuted seating exists to remove.
+    const sim = simulate([makeAgent('random'), makeAgent('random'), makeAgent('random')], {
+      players: 3,
+      games: 10,
+      seed: 2,
+    });
+    expect(sim.blockSize).toBe(6);
+    expect(sim.games).toHaveLength(12);
+    for (let seat = 0; seat < 3; seat++) {
+      const counts = [0, 0, 0];
+      for (const { seating } of sim.games) counts[seating[seat]]++;
+      expect(counts).toEqual([4, 4, 4]); // every agent sits in every seat equally
+    }
   });
 });

@@ -11,6 +11,7 @@
  * determinized search (ISMCTS) needs.
  */
 import { cloneState } from './board';
+import { beliefEnabled, computeBelief, drawWeighted } from './belief';
 import { shuffle } from './rng';
 import type { GameState, RNG, VariantDef } from './types';
 
@@ -40,6 +41,10 @@ function knownCards(s: GameState, player: number): number[] {
   for (const c of s.round.played) {
     if (!c.faceDown || c.player === player) known.push(c.card);
   }
+  // Cards played face up in earlier rounds of this chapter. Everyone watched
+  // them go to the discard, so they cannot be in a hand — without this the
+  // sampler cheerfully deals them back out, which it did in 65% of worlds.
+  known.push(...s.revealed);
   // A Farseers peek reveals one Rival's whole hand to the peeking player, and
   // `observe` leaves it in the view, so those cards are placed already.
   const peeked = peekedHand(s, player);
@@ -67,7 +72,8 @@ export function observe(s: GameState, v: VariantDef, player: number): Observatio
     if (p === player || p === peeked) continue;
     view.playerStates[p].hand = [];
   }
-  // Deck and discard order are unknown to everyone.
+  // Deck and discard order are unknown to everyone. `revealed` survives: it is
+  // the public record of which cards are known to be *in* that discard.
   view.actionDeck = [];
   view.actionDiscard = [];
   view.courtDeck = [];
@@ -86,15 +92,37 @@ export function observe(s: GameState, v: VariantDef, player: number): Observatio
   };
 }
 
+export interface DeterminizeOptions {
+  /**
+   * Weight the deal by what the public record implies about each hand.
+   *
+   * Defaults to `beliefEnabled`, which is **off**: the follow history turned
+   * out to carry almost nothing about hands in this game. See the note on
+   * `beliefEnabled` for the measurement and why. Pass `true` to compare.
+   */
+  belief?: boolean;
+}
+
 /**
  * Sample a full state consistent with an observation: deal the unseen action
  * cards back into the other hands, the face-down plays, the deck and the
  * discard, and reshuffle the Court deck.
  *
  * The result is a legal world, not *the* world — that is exactly what
- * determinized search wants.
+ * determinized search wants. "Legal" does real work here: cards played face up
+ * earlier in the chapter are excluded, so a world can no longer contain a card
+ * the observer watched being discarded.
+ *
+ * The deal itself is uniform over the remaining pool. Weighting it by the
+ * follow history is implemented and available via `opts.belief`, but measured
+ * as no better than uniform — see `beliefEnabled`.
  */
-export function determinize(obs: Observation, v: VariantDef, rng: RNG): GameState {
+export function determinize(
+  obs: Observation,
+  v: VariantDef,
+  rng: RNG,
+  opts: DeterminizeOptions = {},
+): GameState {
   const s = cloneState(obs.state);
   const known = new Set(knownCards(s, obs.player));
   const pool = shuffle(
@@ -102,10 +130,15 @@ export function determinize(obs: Observation, v: VariantDef, rng: RNG): GameStat
     rng,
   );
 
+  const useBelief = opts.belief ?? beliefEnabled;
+  const belief = useBelief ? computeBelief(s, v, obs.player) : null;
+
   const peeked = peekedHand(s, obs.player);
   for (let p = 0; p < s.players; p++) {
     if (p === obs.player || p === peeked) continue;
-    s.playerStates[p].hand = pool.splice(0, obs.handSizes[p]);
+    s.playerStates[p].hand = belief
+      ? drawWeighted(pool, obs.handSizes[p], belief.weight[p], rng)
+      : pool.splice(0, obs.handSizes[p]);
   }
   s.round.played = s.round.played.map((c) =>
     c.card === -1 ? { ...c, card: pool.pop() ?? 0 } : c,
