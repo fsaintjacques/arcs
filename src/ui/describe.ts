@@ -95,12 +95,55 @@ export function describeAction(a: Action, s: GameState, v: VariantDef): string {
     }
     case 'cardPrelude': {
       const card = courtCard(a.card);
+      if (a.played !== undefined) {
+        return `${card.name}: attach to ${cardLabel(s.round.played[a.played].card)} to draw it at round end`;
+      }
+      if (a.cards !== undefined) {
+        const n = a.cards.length;
+        return `${card.name}: discard ${n} card${n === 1 ? '' : 's'}, draw ${n + 1} from the discard bottom`;
+      }
+      const what = a.takeCard !== undefined ? ` ${courtCard(a.takeCard).name}` : '';
       const where = a.system !== undefined ? ` at ${systemLabel(v, a.system)}` : '';
       const from = a.target !== undefined ? ` from ${PLAYER_NAMES[a.target]}` : '';
-      return `${card.name} Prelude${where}${from}`;
+      return `${card.name} Prelude${what}${where}${from}`;
     }
-    case 'cardAction':
-      return `${a.name} — ${courtCard(a.card).name}`;
+    case 'cardAction': {
+      const name = courtCard(a.card).name;
+      if (a.gain) return `${a.name} — return ${a.gain.length} Captive(s) for ${a.gain.join(', ')}`;
+      if (a.name === 'Execute') return `${a.name} — move ${a.count} Captive(s) to Trophies`;
+      if (a.name === 'Abduct') return `${a.name} — take Rival agents off ${courtCard(s.court[a.slot!].card).name}`;
+      if (a.name === 'Trade') {
+        const them = s.systems[a.system!].buildings[a.building!].player;
+        return `${a.name} — swap with ${PLAYER_NAMES[them]} at ${systemLabel(v, a.system!)}`;
+      }
+      return `${a.name} — ${name}`;
+    }
+    case 'rerollSkirmish':
+      return a.count === 0
+        ? 'Keep the roll'
+        : `Reroll ${a.count} blank skirmish di${a.count === 1 ? 'e' : 'ce'}`;
+    case 'peekTarget':
+      return a.target === null
+        ? 'Do not look at anyone’s hand'
+        : `Look at ${PLAYER_NAMES[a.target]}’s hand`;
+    case 'peekSwap':
+      return `Give ${cardLabel(a.give)}, take ${cardLabel(a.take)}`;
+    case 'peekSwapSkip':
+      return 'Swap nothing';
+    case 'vox': {
+      const name = courtCard(s.pendingVox!.card).name;
+      if (a.cluster !== undefined) return `${name}: 1 ship in every system of cluster ${a.cluster + 1}`;
+      if (a.ambition !== undefined) return `${name}: declare ${AMBITION_LABEL[a.ambition]}`;
+      if (a.resource !== undefined) return `${name}: everyone Provokes Outrage of ${a.resource}`;
+      if (a.system !== undefined) {
+        const owner = s.systems[a.system].buildings[a.building!]?.player ?? 0;
+        return `${name}: return ${PLAYER_NAMES[owner]}’s city at ${systemLabel(v, a.system)}${a.seize ? ' and seize' : ''}`;
+      }
+      if (a.card !== undefined) return `${name}: steal ${courtCard(a.card).name} from ${PLAYER_NAMES[a.target!]}`;
+      return name;
+    }
+    case 'voxSkip':
+      return `Decline ${courtCard(s.pendingVox!.card).name}`;
     case 'beginActions':
       return 'End Prelude, start spending pips';
     case 'tax': {
@@ -194,6 +237,15 @@ export function actionGroup(a: Action): string {
     case 'raidResource':
     case 'raidCard':
       return 'Raid';
+    case 'rerollSkirmish':
+      return 'Skirmishers: reroll';
+    case 'peekTarget':
+    case 'peekSwap':
+    case 'peekSwapSkip':
+      return 'Farseers';
+    case 'vox':
+    case 'voxSkip':
+      return 'Vox: when secured';
     default:
       return 'Finish';
   }
@@ -219,6 +271,7 @@ export function actionSystem(a: Action): number | null {
 }
 
 export function phaseLabel(s: GameState): string {
+  if (s.pendingVox) return `${courtCard(s.pendingVox.card).name} — when secured`;
   switch (s.phase) {
     case 'deal':
       return 'Dealing a new chapter';
@@ -234,8 +287,13 @@ export function phaseLabel(s: GameState): string {
       return 'Catapult';
     case 'battleRoll':
       return 'Rolling battle dice';
+    case 'battleReroll':
+      return 'Skirmishers — reroll blanks?';
     case 'battleAssign':
       return 'Assigning hits';
+    case 'peekTarget':
+    case 'peekSwap':
+      return 'Farseers — looking at a hand';
     case 'reinforce':
       return 'Reinforcing';
     case 'over':

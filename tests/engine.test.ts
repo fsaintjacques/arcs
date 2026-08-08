@@ -7,6 +7,7 @@ import {
   applyAction,
   applyActionMut,
   cloneState,
+  COURT_DECK,
   determinize,
   getPending,
   makeVariant,
@@ -75,6 +76,77 @@ describe('decision process', () => {
         expect(s.phase).toBe('over');
       }
     }
+  });
+
+  it('survives a game where everyone holds the entire Court', () => {
+    // Every Guild and Vox ability is reachable but most are rare in ordinary
+    // play — a specific card reaches a hand maybe once per few games. Dealing
+    // the whole Court to everyone forces every Prelude, new action and passive
+    // to be enumerated and applied thousands of times, which is what catches a
+    // dispatch that throws rather than one that is merely never chosen.
+    const everyCard = COURT_DECK.filter((c) => c.kind === 'guild').map((c) => c.id);
+    const seen = new Set<string>();
+
+    for (const players of [2, 3, 4]) {
+      for (let seed = 0; seed < 4; seed++) {
+        const v = makeVariant(players, seed);
+        const rng = mulberry32(seed + 900);
+        const s = newGame(v, rng, seed);
+        for (const p of s.playerStates) p.guildCards = [...everyCard];
+        // Both Cartels are now held by everyone, so those supplies are empty.
+        for (const type of ['material', 'fuel'] as const) {
+          s.cartel[type] += s.supply[type];
+          s.supply[type] = 0;
+        }
+        // Captives and Weapon icons, so Pressgang / Execute / Abduct qualify.
+        for (let p = 0; p < players; p++) {
+          s.playerStates[p].captives = [(p + 1) % players, (p + 1) % players];
+          s.court.forEach((slot) => (slot.agents[(p + 1) % players] = 1));
+        }
+
+        for (let guard = 0; guard < 200_000; guard++) {
+          const node = getPending(s, v);
+          if (node.kind === 'over') break;
+          if (node.kind === 'chance') {
+            resolveChanceMut(s, v, rng);
+            continue;
+          }
+          expect(node.actions.length).toBeGreaterThan(0);
+          // Prefer an ability over an ordinary action, to drive them hard.
+          const fancy = node.actions.filter(
+            (a) => a.t === 'cardPrelude' || a.t === 'cardAction' || a.t === 'vox' || a.t === 'rerollSkirmish',
+          );
+          const pool = fancy.length > 0 && rng() < 0.8 ? fancy : node.actions;
+          const chosen = pool[Math.floor(rng() * pool.length)];
+          if (chosen.t === 'cardAction') seen.add(chosen.name);
+          if (chosen.t === 'cardPrelude') {
+            if (chosen.played !== undefined) seen.add('union');
+            if (chosen.cards !== undefined) seen.add('farseers');
+            if (chosen.takeCard !== undefined) seen.add('stealCard');
+          }
+          if (chosen.t === 'rerollSkirmish' && chosen.count > 0) seen.add('reroll');
+          if (chosen.t === 'vox') seen.add('vox');
+          applyActionMut(s, v, chosen);
+        }
+        expect(s.phase).toBe('over');
+      }
+    }
+
+    // Confirm the hard-to-reach paths really did run, so this test cannot pass
+    // by never exercising anything.
+    //
+    // Elder Broker's Trade is absent on purpose: it needs a Rival city sitting
+    // in a system you control, that Rival holding the planet's resource, and you
+    // holding a type they lack — a conjunction a random walk pulls apart faster
+    // than it assembles. It is covered directly in powers.test.ts instead.
+    for (const path of ['Pressgang', 'Execute', 'Abduct', 'union', 'farseers', 'stealCard', 'reroll', 'vox']) {
+      expect(seen, path).toContain(path);
+    }
+    // Manufacture and Synthesize are also absent, and that is the Cartels
+    // working: with both held, the Material and Fuel supplies are empty, so
+    // neither "gain 1 of that resource" action can be offered at all.
+    expect(seen).not.toContain('Manufacture');
+    expect(seen).not.toContain('Synthesize');
   });
 
   it('applyAction is pure: the input state is untouched', () => {

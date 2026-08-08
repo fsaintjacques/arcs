@@ -1,9 +1,17 @@
 /**
  * Ambitions, ambition markers and end-of-chapter scoring (rulebook p18-p19).
  */
-import type { AmbitionId, AmbitionMarkerDef, GameState, PlayerState, VariantDef } from './types';
+import type {
+  AmbitionId,
+  AmbitionMarkerDef,
+  GameState,
+  PlayerState,
+  ResourceType,
+  VariantDef,
+} from './types';
 import { AMBITIONS } from './types';
 import { courtCard } from './court';
+import { cartelIcons } from './powers';
 import { BONUS_FIRST_ONE_SLOT, BONUS_FIRST_BOTH_SLOTS, uncoveredBonuses } from './playerBoard';
 
 /**
@@ -68,30 +76,47 @@ export function flipLowestUnflipped(s: GameState, v: VariantDef): void {
 // Counting ambitions
 // ---------------------------------------------------------------------------
 
-/** Resource + Guild-card icons of a type a player holds. */
-function icons(p: PlayerState, ...types: ('material' | 'fuel' | 'relic' | 'psionic')[]): number {
+type CountedType = 'material' | 'fuel' | 'relic' | 'psionic';
+
+/**
+ * Resource + Guild-card icons of a type a player holds.
+ *
+ * `cartel` adds the resources sitting on a Cartel card this player holds: "you
+ * add it to Tycoon but can't spend it" (p20). It is passed in rather than read
+ * off `PlayerState` because the stockpile lives on the card, not the board.
+ */
+function icons(
+  p: PlayerState,
+  cartel: Partial<Record<ResourceType, number>> | undefined,
+  ...types: CountedType[]
+): number {
   let n = 0;
   for (const r of p.resources) if (r && (types as string[]).includes(r)) n++;
   for (const id of p.guildCards) {
     const suit = courtCard(id).suit;
     if (suit && (types as string[]).includes(suit)) n++;
   }
+  for (const t of types) n += cartel?.[t] ?? 0;
   return n;
 }
 
 /** What a player has toward one ambition (p18). */
-export function ambitionCount(p: PlayerState, ambition: AmbitionId): number {
+export function ambitionCount(
+  p: PlayerState,
+  ambition: AmbitionId,
+  cartel?: Partial<Record<ResourceType, number>>,
+): number {
   switch (ambition) {
     case 'tycoon':
-      return icons(p, 'material', 'fuel');
+      return icons(p, cartel, 'material', 'fuel');
     case 'tyrant':
       return p.captives.length;
     case 'warlord':
       return p.trophies.length;
     case 'keeper':
-      return icons(p, 'relic');
+      return icons(p, cartel, 'relic');
     case 'empath':
-      return icons(p, 'psionic');
+      return icons(p, cartel, 'psionic');
   }
 }
 
@@ -130,7 +155,7 @@ export function scoreAmbition(
     second += value.second;
   }
 
-  const counts = s.playerStates.map((p) => ambitionCount(p, ambition));
+  const counts = s.playerStates.map((p, i) => ambitionCount(p, ambition, cartelIcons(s, i)));
   const phantom = s.phantom[ambition] ?? 0;
   const pool = [...counts, phantom];
 

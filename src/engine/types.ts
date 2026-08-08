@@ -167,6 +167,9 @@ export interface SystemState {
   outOfPlay: boolean;
 }
 
+/** A destroyed Rival piece, or a captured agent moved to Trophies (p16, p20). */
+export type TrophyKind = 'ship' | 'starport' | 'city' | 'agent';
+
 export interface PlayerState {
   power: number;
   /**
@@ -182,7 +185,7 @@ export interface PlayerState {
    * Destroyed Rival pieces: counts toward Warlord. Owner and kind are kept so
    * the pieces can go home when Warlord scores and Trophies are returned (p19).
    */
-  trophies: { owner: number; kind: 'ship' | 'starport' | 'city' }[];
+  trophies: { owner: number; kind: TrophyKind }[];
   /** Captured Rival agents, by owner: counts toward Tyrant. */
   captives: number[];
   agentsSupply: number;
@@ -222,12 +225,16 @@ export interface RoundState {
   seizedBy: number | null;
   /** Consecutive passes, to detect "everyone with cards passed" (p8). */
   consecutivePasses: number;
+  /** Any ambition declared yet this round — Galactic Bards needs none to be. */
+  ambitionDeclared: boolean;
 }
 
 /** The turn in progress: what the current player has left to spend. */
 export interface TurnState {
   player: number;
   mode: PlayMode;
+  /** The action card this turn was played with — Galactic Bards declares on it. */
+  card: number;
   /** Actions still available from the played card's pips. */
   pipsLeft: number;
   /** Which action kinds the remaining pips may buy. */
@@ -262,6 +269,12 @@ export interface BattleState {
   keys: number;
   /** Set once the intercept has been converted into self-hits. */
   interceptResolved: boolean;
+  /** Skirmish dice that came up blank — the ones Skirmishers may reroll. */
+  skirmishBlanks: number;
+  /** Dice the next `battleRoll` should reroll instead of rolling the pool. */
+  pendingReroll: number;
+  /** Skirmishers is once per battle. */
+  rerollDone: boolean;
 }
 
 /** A catapult move in progress (p13). */
@@ -284,8 +297,11 @@ export type Phase =
   | 'prelude' // decision: declare, seize, spend resources, then begin actions
   | 'actions' // decision: spend pips and free actions, or end the turn
   | 'catapult' // decision: continue or stop a catapult move
-  | 'battleRoll' // chance: roll the collected battle dice
+  | 'battleRoll' // chance: roll the collected battle dice (or a reroll)
+  | 'battleReroll' // decision: Skirmishers — how many blanks to reroll
   | 'battleAssign' // decision: assign hits one at a time, then raid
+  | 'peekTarget' // decision: Farseers — whose hand to look at
+  | 'peekSwap' // decision: Farseers — swap a card with the peeked hand
   | 'reinforce' // decision: a wiped-out player places 3 ships in a gate
   | 'over';
 
@@ -311,6 +327,12 @@ export interface GameState {
   playerStates: PlayerState[];
   /** The general supply: 5 tokens of each resource type (p3). */
   supply: Record<ResourceType, number>;
+  /**
+   * Resources sitting on a Cartel card instead of in the general supply. The
+   * holder is whoever holds that Cartel card, so this is keyed by type only —
+   * there is exactly one Cartel per type in the deck.
+   */
+  cartel: Record<ResourceType, number>;
   court: CourtSlot[];
   courtDeck: number[];
   courtDiscard: number[];
@@ -330,6 +352,19 @@ export interface GameState {
   phantom: Record<AmbitionId, number>;
   /** Players still owing a reinforce decision at end of turn. */
   reinforcing: number | null;
+  /**
+   * Union cards attached to a face-up played action card. When the round ends
+   * the owner draws `target` into hand and the Union card is discarded (p20).
+   */
+  unions: { card: number; player: number; target: number }[];
+  /**
+   * A Vox card's `When Secured` effect waiting to be resolved. It overlays the
+   * phase rather than replacing it, because securing happens mid-turn (from an
+   * action) or mid-battle (from a Ransack), and that flow has to resume.
+   */
+  pendingVox: { card: number; player: number; resume: 'actions' | 'battle' } | null;
+  /** Farseers: whose hand the player is looking at, and where to return to. */
+  peek: { player: number; target: number | null; resume: Phase } | null;
   stats: GameStats;
 }
 
@@ -351,15 +386,44 @@ export type Action =
   | { t: 'spendResource'; slot: number }
   /** Spend a resource as another type, via a Loyal Guild card (p20). */
   | { t: 'spendResourceAs'; slot: number; as: ResourceType }
-  /** Use a Guild card's `Prelude:` ability. Most discard the card. */
-  | { t: 'cardPrelude'; card: number; system?: number; slot?: number; target?: number }
+  /**
+   * Use a Guild card's `Prelude:` ability. Most discard the card. The optional
+   * fields are the ability's parameters: `system` for "place ships here",
+   * `target`/`slot` for stealing a Rival's resource, `takeCard` for stealing a
+   * Guild card, `played` for attaching a Union, `cards` for Farseers' swap.
+   */
+  | {
+      t: 'cardPrelude';
+      card: number;
+      system?: number;
+      slot?: number;
+      target?: number;
+      takeCard?: number;
+      played?: number;
+      cards?: number[];
+    }
   | { t: 'beginActions' }
   // --- actions ---
   | { t: 'tax'; system: number; building: number }
   | { t: 'buildShip'; system: number; building: number }
   | { t: 'buildBuilding'; system: number; kind: BuildingKind }
-  /** A Guild card's new action, taken instead of the standard one it replaces. */
-  | { t: 'cardAction'; card: number; name: string }
+  /**
+   * A Guild card's new action, taken instead of the standard one it replaces.
+   * `gain` lists one resource per Captive for Pressgang, `count` is how many
+   * Captives Execute moves, `slot` is the Court slot Abduct empties, and
+   * `system`/`building`/`slot`/`giveSlot` locate Elder Broker's Trade.
+   */
+  | {
+      t: 'cardAction';
+      card: number;
+      name: string;
+      gain?: ResourceType[];
+      count?: number;
+      slot?: number;
+      system?: number;
+      building?: number;
+      giveSlot?: number;
+    }
   | { t: 'move'; from: number; to: number; ships: number }
   | { t: 'catapult'; to: number; ships: number }
   | { t: 'catapultStop' }
@@ -378,6 +442,33 @@ export type Action =
   | { t: 'raidResource'; slot: number }
   | { t: 'raidCard'; card: number }
   | { t: 'raidDone' }
+  /** Skirmishers: reroll `count` blank skirmish dice (0 declines). */
+  | { t: 'rerollSkirmish'; count: number }
+  // --- Farseers ---
+  /** Choose whose hand to look at, or `null` to decline. */
+  | { t: 'peekTarget'; target: number | null }
+  /** Swap one of your cards for one of theirs, or decline. */
+  | { t: 'peekSwap'; give: number; take: number }
+  | { t: 'peekSwapSkip' }
+  // --- Vox `When Secured` ---
+  /**
+   * Resolve the pending Vox card. Which fields matter depends on the card:
+   * `cluster` (Mass Uprising), `ambition` (Populist Demands), `resource`
+   * (Outrage Spreads), `system`/`building`/`seize` (Song of Freedom),
+   * `target`/`card` (Guild Struggle).
+   */
+  | {
+      t: 'vox';
+      cluster?: number;
+      ambition?: AmbitionId;
+      resource?: ResourceType;
+      system?: number;
+      building?: number;
+      seize?: boolean;
+      target?: number;
+      card?: number;
+    }
+  | { t: 'voxSkip' }
   // --- reinforce ---
   | { t: 'reinforce'; system: number };
 

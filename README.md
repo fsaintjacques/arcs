@@ -25,18 +25,15 @@ The **base game**: 2–4 players, up to 5 chapters, the lead-and-follow action
 deck, ambitions and Power, the Court, resources, building, movement with
 Catapult, battle with all three dice, raiding, and Outrage.
 
-Leaders & Lore and the Blighted Reach campaign are out of scope. Two things
-inside the base game are not fully modelled, both because the data lives on the
-physical components rather than in the rulebook:
+Leaders & Lore and the Blighted Reach campaign are out of scope. **All 31 Court
+cards work as printed** — every Guild and Vox ability is dispatched, and
+`POWER_STATUS` in `court.ts` plus a test that asserts nothing is left over keep
+that claim honest.
 
-- **Guild and Vox card abilities.** All 31 cards are present with their real
-  names, suits, raid costs and printed text, so influence, secure, raid, Outrage
-  discards and the Tycoon / Keeper / Empath counts are exact. Of the printed
-  *abilities*, **13 are fully dispatched, 6 partially, 12 not yet** —
-  `POWER_STATUS` in `court.ts` records each card's state and names what is
-  missing, and tests keep it honest. The Unions and Cartels need state the
-  engine does not have yet; the Vox cards need a When Secured decision node.
-- **Setup cards, and one detail of the map.** The map is now transcribed from the
+One thing inside the base game is still reconstructed, because the data lives on
+the physical components rather than in the rulebook:
+
+- **Setup cards, and one detail of the map.** The map is transcribed from the
   printed board — all 18 planet types and building-slot counts, cross-checked
   against the type distribution (Material 4, Fuel 4, Weapon 4, Relic 3,
   Psionic 3) — on top of a structurally faithful graph (6 clusters, 1 gate + 3
@@ -168,48 +165,49 @@ comparison in this README wrong.
 
 ## Results
 
-Modest batches, and the caveats above apply — 18 of 31 Guild abilities are not
-dispatched yet and the setups are generated, so these describe *this engine's*
-Arcs.
+Modest batches, and the setups are still generated rather than the printed 12, so
+these describe *this engine's* Arcs.
 
 Two players:
 
 | matchup | games | win % | mean Power |
 |---|---|---|---|
-| `random+` vs `random` | 40 | 62.5 / 37.5 | 4.8 / 4.8 |
-| `greedy` vs `random+` | 40 | **100.0** / 0.0 | 42.6 / 2.0 |
-| `greedy` vs `mc` | 40 | 45.0 / 55.0 | 26.5 / 24.9 |
-| `greedy` vs `mcts` | 60 | 41.7 / 58.3 | 21.3 / 22.6 |
+| `random+` vs `random` | 40 | 52.5 / 47.5 | 4.3 / 6.3 |
+| `greedy` vs `random+` | 40 | **100.0** / 0.0 | 43.3 / 1.5 |
+| `greedy` vs `mc` | 40 | 52.5 / 47.5 | 23.9 / 23.4 |
+| `greedy` vs `mcts` | 60 | 28.3 / **71.7** | 21.0 / 25.5 |
 
 Three players:
 
 | field | games | win % |
 |---|---|---|
-| `greedy`, `mc`, `random` | 60 | **61.7** / 38.3 / 0.0 |
+| `greedy`, `mc`, `random` | 60 | **56.7** / 43.3 / 0.0 |
 
-**Read the intervals, not the ordering.** Exactly two claims here are supported:
-`greedy` beats `random+` 40–0, and `random` wins nothing against anything. Every
-other row sits inside a ±12–15 point interval, and every one of them has flipped
-at least once.
+**`mcts` beats `greedy`, and that is new.** This matchup has been measured five
+times as the rules got more accurate, and the first four readings — 50/50, 35/65,
+55/45, 41.7/58.3 — all sat inside a ±12.6 interval, which this project reported as
+"not separated" each time rather than picking the leader. The fifth is
+71.7 ± 11.4, an interval of [60.3, 83.1] that excludes 50%. `mcts` also passes
+`greedy` on mean Power for the first time, which had been the one stable
+difference between them.
 
-**Component data moves the ladder more than agent design does.** `greedy` vs
-`mcts` has now flipped four times — 50/50 with inferred dice, 35/65 once the dice
-were corrected, 55/45 once Guild abilities went live, 41.7/58.3 once the map was
-transcribed. Three of those four flips came from *data*, not code. The map
-correction alone swung `greedy` vs `mc` by 22.5 points, larger than any change to
-an agent has produced.
+The likely cause is that a complete Court is the part of Arcs that rewards
+lookahead: card abilities are conditional and sequenced, and a one-step evaluation
+prices a setup move at nothing. That is a hypothesis, and the README says so —
+testing it needs an abilities-off switch the engine does not have.
 
-That is the main methodological result of the project: in a game this
-component-heavy, an engine built on plausible-looking reconstructed data will
-produce a confident and wrong strategy ranking, and the error is invisible from
-inside the numbers. It fit four consecutive datasets that `mcts` scores less
-Power than `greedy`; the map correction erased the gap.
+**Component data moves the ladder more than agent design does.** Three of those
+five readings moved on *data*, not code. Transcribing the map alone swung `greedy`
+vs `mc` by 22.5 points, larger than any change to an agent has produced. That is
+the main methodological result here: in a game this component-heavy, an engine
+built on plausible-looking reconstructed data produces a confident and wrong
+strategy ranking, and the error is invisible from inside the numbers.
 
-**Where the search should look next.** The printed map puts Relic and Psionic —
-the resources behind the Keeper and Empath ambitions — on only 3 planets each,
-while Weapon, which scores no ambition at all, sits on 4. `eval.ts` prices all
-five resources alike, so tuning those weights is now a concrete lead rather than
-a generic suggestion.
+**Finishing the Court exposed a hole in the bots, not the engine.** Instrumenting
+40 games shows three abilities offered constantly and never once taken — Farseers'
+Prelude (998 offers), attaching a Union (119), Execute (15). One cause: `eval.ts`
+has no term for hand quality, so trading cards for better cards evaluates as
+zero. That is now the highest-value thing to add to the evaluation.
 
 See [docs/FINDINGS.md](docs/FINDINGS.md) for the evidence and the negative
 results.
@@ -224,11 +222,12 @@ src/engine/            pure engine, no dependencies
   types.ts             core types; the decision-process contract
   map.ts               the 6-cluster ring, the transcribed planets, adjacency
   cards.ts             the 28-card action deck
-  court.ts             Guild and Vox cards
+  court.ts             the 31 Guild and Vox cards, as data
+  powers.ts            card ability dispatch: Preludes, new actions, passives, Vox
   dice.ts              battle die faces
   ambitions.ts         markers, counting, end-of-chapter scoring
   playerBoard.ts       resource slots, city rewards, raid costs
-  board.ts             control, adjacency and state cloning
+  board.ts             control, adjacency, the Cartel supply, state cloning
   setup.ts             variants and the opening position
   game.ts              the state machine
   observe.ts           the imperfect-information boundary
@@ -240,16 +239,22 @@ tests/                 vitest suite
 
 ## Tests
 
-104 tests, in four groups:
+167 tests, in five groups:
 
-- `components.test.ts` — the map graph, deck composition, pip and ambition
-  tables, die-face distributions, marker values.
+- `components.test.ts` — the map graph and its planet distribution, deck
+  composition, pip and ambition tables, die-face distributions, marker values.
 - `rules.test.ts` — setup, lead/follow legality, initiative and seizing,
   declaring ambitions, every standard action, Prelude resources, battle
   resolution, ambition scoring including every tie case, chapter and game end.
+- `powers.test.ts` — every Court card ability: the Loyal cards, both Cartels,
+  the Unions, the new actions, Skirmishers' reroll, Farseers' peek and its
+  information boundary, Galactic Bards, and all six Vox cards. Also asserts
+  `UNIMPLEMENTED_POWERS` is empty, so the claim above cannot go stale.
 - `engine.test.ts` — the decision-process contract: a legal action always
   exists, games terminate under adversarial policies, `applyAction` is pure,
   `cloneState` is deep, runs are reproducible, ships are conserved, and the
-  observation boundary holds.
+  observation boundary holds. Includes a stress game where every player holds
+  the entire Court, which drives the rare ability paths thousands of times and
+  asserts that the hard-to-reach ones actually ran.
 - `agents.test.ts` — every registered agent finishes a game and never plays an
   action that was not offered.

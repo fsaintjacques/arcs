@@ -13,9 +13,9 @@
  * Interest, 11 Arms Union, 15 Loyal Marines, 18 Secret Order) and all seven
  * agree, which pins the ordering.
  *
- * `power` is the engine-readable form. A card with `power: undefined` is
- * data-complete but mechanically inert — see `UNIMPLEMENTED_POWERS` below and
- * docs/DATA-GAPS.md §4 for exactly which those are.
+ * `power` is the engine-readable form, and every printed ability now has one:
+ * `POWER_STATUS` below records each card's dispatch state and a test asserts
+ * that anything short of `full` says what is missing, so this cannot drift.
  */
 import type { CourtCardDef, ResourceType, Suit } from './types';
 
@@ -43,7 +43,11 @@ export type PreludeAbility =
   /** Seize the initiative without paying a card. */
   | { t: 'seizeInitiative' }
   /** Once per turn, without discarding: trade 1 resource for 1 `gain`. */
-  | { t: 'convertResource'; gain: ResourceType; keepCard: true };
+  | { t: 'convertResource'; gain: ResourceType; keepCard: true }
+  /** A Union: attach to a face-up played card of `suit` to draw it later. */
+  | { t: 'attachUnion'; suit: Suit }
+  /** Farseers: discard this and any hand cards, redraw from the discard bottom. */
+  | { t: 'recycleHand' };
 
 /** A new action replacing a standard one, written `Name (Standard): …` (p20). */
 export interface NewAction {
@@ -135,7 +139,10 @@ function union(name: string, suit: ResourceType, cardSuit: Suit, label: string):
     text:
       `Prelude: You may place this card next to a face-up played ${label} card. ` +
       `When the round ends, draw that card into your hand and discard this card.`,
-    power: { passives: [{ t: 'union', suit: cardSuit }] },
+    power: {
+      passives: [{ t: 'union', suit: cardSuit }],
+      prelude: { t: 'attachUnion', suit: cardSuit },
+    },
   };
 }
 
@@ -249,7 +256,7 @@ const GUILD_SPECS: GuildSpec[] = [
       "When you declare an ambition, look at a Rival's hand. You may swap 1 card with them. " +
       'Prelude: You may discard this and any number of cards from your hand. Draw the same number ' +
       'of cards (including Farseers) from the bottom of the action discard pile.',
-    power: { passives: [{ t: 'peekAndSwap' }] },
+    power: { passives: [{ t: 'peekAndSwap' }], prelude: { t: 'recycleHand' } },
   },
   {
     name: 'Secret Order',
@@ -403,42 +410,48 @@ export function courtRowSize(players: number): number {
  * that the README and DATA-GAPS claims stay true.
  */
 export const POWER_STATUS: Record<string, { status: 'full' | 'partial' | 'none'; missing?: string }> = {
-  // --- fully dispatched -----------------------------------------------------
+  // --- Guild: the 5 Loyal cards --------------------------------------------
   'Loyal Engineers': { status: 'full' },
   'Loyal Pilots': { status: 'full' },
   'Loyal Marines': { status: 'full' },
   'Loyal Empaths': { status: 'full' },
   'Loyal Keepers': { status: 'full' },
+
+  // --- Guild: resource economy ---------------------------------------------
   'Mining Interest': { status: 'full' },
   'Shipping Interest': { status: 'full' },
+  'Material Cartel': { status: 'full' },
+  'Fuel Cartel': { status: 'full' },
+  'Relic Fence': { status: 'full' },
+  'Elder Broker': { status: 'full' },
+
+  // --- Guild: the 4 Unions --------------------------------------------------
+  'Admin Union': { status: 'full' },
+  'Construction Union': { status: 'full' },
+  'Spacing Union': { status: 'full' },
+  'Arms Union': { status: 'full' },
+
+  // --- Guild: military ------------------------------------------------------
   Gatekeepers: { status: 'full' },
+  'Prison Wardens': { status: 'full' },
+  Skirmishers: { status: 'full' },
+  'Court Enforcers': { status: 'full' },
+
+  // --- Guild: Court and initiative ------------------------------------------
   'Lattice Spies': { status: 'full' },
   'Secret Order': { status: 'full' },
   'Silver-Tongues': { status: 'full' },
   'Sworn Guardians': { status: 'full' },
-  'Relic Fence': { status: 'full' },
+  Farseers: { status: 'full' },
+  'Galactic Bards': { status: 'full' },
 
-  // --- Prelude works, the rest does not ------------------------------------
-  'Material Cartel': { status: 'partial', missing: 'holding the Material supply on the card' },
-  'Fuel Cartel': { status: 'partial', missing: 'holding the Fuel supply on the card' },
-  'Prison Wardens': { status: 'partial', missing: 'Pressgang (Build) and Execute (Influence)' },
-  Skirmishers: { status: 'partial', missing: 'rerolling skirmish dice' },
-  'Court Enforcers': { status: 'partial', missing: 'Abduct (Battle)' },
-  'Elder Broker': { status: 'partial', missing: 'Trade (Tax)' },
-
-  // --- not dispatched -------------------------------------------------------
-  'Admin Union': { status: 'none', missing: 'attaching to a played card' },
-  'Construction Union': { status: 'none', missing: 'attaching to a played card' },
-  'Spacing Union': { status: 'none', missing: 'attaching to a played card' },
-  'Arms Union': { status: 'none', missing: 'attaching to a played card' },
-  Farseers: { status: 'none', missing: 'peeking at a Rival hand and swapping' },
-  'Galactic Bards': { status: 'none', missing: 'declaring on a Surpass or Pivot' },
-  'Mass Uprising': { status: 'none', missing: 'When Secured' },
-  'Populist Demands': { status: 'none', missing: 'When Secured' },
-  'Outrage Spreads': { status: 'none', missing: 'When Secured' },
-  'Song of Freedom': { status: 'none', missing: 'When Secured' },
-  'Guild Struggle': { status: 'none', missing: 'When Secured' },
-  'Call to Action': { status: 'none', missing: 'When Secured' },
+  // --- the 6 Vox ------------------------------------------------------------
+  'Mass Uprising': { status: 'full' },
+  'Populist Demands': { status: 'full' },
+  'Outrage Spreads': { status: 'full' },
+  'Song of Freedom': { status: 'full' },
+  'Guild Struggle': { status: 'full' },
+  'Call to Action': { status: 'full' },
 };
 
 export const IMPLEMENTED_POWERS = new Set(

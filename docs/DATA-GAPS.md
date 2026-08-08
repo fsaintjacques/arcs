@@ -14,13 +14,13 @@ space, and the agent API are all independent of these values.
 | 1 | Ambition marker reverse sides | `src/engine/ambitions.ts` | medium — one of three confirmed |
 | 2 | Intra-cluster planet adjacency | `src/engine/map.ts` | medium — types and slots now read off the board; which pair a thick border splits is not |
 | 3 | Setup cards | `src/engine/setup.ts` | low — generated symmetrically, not the printed 12 |
-| 4 | Guild / Vox ability *dispatch* | `src/engine/court.ts` | data exact; 13 of 31 abilities fully dispatched |
-| 5 | Player board economy | `src/engine/playerBoard.ts` | low |
+| 4 | Player board economy | `src/engine/playerBoard.ts` | low |
 
 **Closed:** battle die faces (official aid booklet p3 prints all six faces of
 each die), the Court card data (names, suits, raid costs and verbatim text for
-all 31 cards), and the map's **planet types and building-slot counts**, now
-transcribed from the printed board.
+all 31 cards), the map's **planet types and building-slot counts** transcribed
+from the printed board, and — as of this pass — **every Court card ability**,
+all 31 now dispatched.
 
 ---
 
@@ -100,6 +100,55 @@ photographed board rather than the PDF.
 To correct: edit `CLUSTERS` in `map.ts` — each entry lists its 3 planets as
 `{ type, slots }`.
 
+## Closed: the Court
+
+All 31 cards — name, suit, raid cost and verbatim rules text — are transcribed
+from card images in `court.ts`. The printed numbers run 01–25 Guild and 26–31
+Vox; seven of those numbers are legible in the rulebook itself (01 Loyal
+Engineers, 03 Material Cartel, 04 Admin Union, 09 Shipping Interest, 11 Arms
+Union, 15 Loyal Marines, 18 Secret Order) and all seven agree with the
+transcription, which pins the ordering.
+
+**Every printed ability is now dispatched.** `POWER_STATUS` in `court.ts` records
+each card as `full`, `partial` or `none`; all 31 read `full`, and
+`powers.test.ts` asserts `UNIMPLEMENTED_POWERS` is empty, so a rollback would
+fail the suite rather than quietly contradict this file.
+
+The abilities fall into the kinds the rulebook names (p20):
+
+| kind | cards | example |
+|---|---|---|
+| `Prelude:` abilities | 19 | *Silver-Tongues* — discard to steal a Guild card or resource |
+| new actions `Name (Standard):` | 5 cards, 6 actions | *Prison Wardens* — Pressgang (Build), Execute (Influence) |
+| passive modifiers | 17 | *Gatekeepers* — collect 2 more dice when battling in a gate |
+| Vox `When Secured:` | 6 | *Populist Demands* — declare any ambition |
+
+(Cards can appear in more than one row.)
+
+Four of them needed structure the engine did not have, and that structure is
+now part of the state rather than bolted onto a card:
+
+- **the Cartels** hold their resource type's whole supply on the card
+  (`GameState.cartel`). While one is in play that type's general supply is
+  empty, returned tokens flow onto the card, the holder counts them toward
+  Tycoon but cannot spend them, and Rivals lose all of that type after scoring.
+- **the Unions** attach to a face-up played action card (`GameState.unions`) and
+  hand it to their owner when the round ends.
+- **Skirmishers** needs a decision *after* the dice are rolled, so a battle now
+  has a `battleReroll` phase between the roll and hit assignment.
+- **Farseers** reveals one named Rival's hand, which is the only place the
+  engine deliberately opens the imperfect-information boundary. It is two
+  decisions (`peekTarget`, then `peekSwap`) precisely so that committing to a
+  target happens *before* the reveal — enumerating swaps across all Rivals at
+  once would leak every hand instead of the one the card names. `observe()`
+  reveals exactly the chosen hand, and only while the swap is pending.
+- **the Vox cards** resolve on being secured, which can happen mid-turn or
+  mid-Ransack, so `pendingVox` overlays the current phase and both `afterAction`
+  and `settleBattle` stall until it is answered.
+
+Three of those raised questions the cards do not answer; all three are recorded
+as [engine rulings](RULES.md#11-engine-rulings).
+
 ## 3. Setup cards
 
 The box has 12 setup cards (4 each for 2, 3 and 4 players). Their contents are
@@ -116,49 +165,7 @@ setup rule the rulebook does state:
 still vary. To use the printed cards instead, replace `generateSetup()` with a
 literal table of the 12 setups.
 
-## 4. Guild and Vox card abilities
-
-**The card data is no longer a gap.** All 31 cards — name, suit, raid cost and
-verbatim rules text — are transcribed from card images in `court.ts`. The
-printed numbers run 01–25 Guild and 26–31 Vox; seven of those numbers are
-legible in the rulebook itself (01 Loyal Engineers, 03 Material Cartel, 04
-Admin Union, 09 Shipping Interest, 11 Arms Union, 15 Loyal Marines, 18 Secret
-Order) and all seven agree with the transcription, which pins the ordering.
-
-What remains is **dispatching the rest of the abilities**. `POWER_STATUS` in
-`court.ts` records each card as `full`, `partial` or `none` and names what is
-missing; tests assert every card carrying an ability is classified and that
-anything short of `full` says why, so this document cannot drift.
-
-As of now: **13 full, 6 partial, 12 none**.
-
-| status | cards |
-|---|---|
-| full | the 5 Loyal cards, Mining Interest, Shipping Interest, Gatekeepers, Lattice Spies, Secret Order, Silver-Tongues, Sworn Guardians, Relic Fence |
-| partial (Prelude works, rest does not) | both Cartels, Prison Wardens, Skirmishers, Court Enforcers, Elder Broker |
-| none | the 4 Union cards, Farseers, Galactic Bards, and all 6 Vox |
-
-Everything else about every card already works exactly as printed: suit counts
-toward Tycoon / Keeper / Empath, Weapon cards count toward nothing, raid costs
-gate what an attacker can steal, and Outrage discards cards by suit.
-
-The abilities fall into the three kinds the rulebook names (p20):
-
-| kind | cards | example |
-|---|---|---|
-| `Prelude:` abilities | 13 | *Silver-Tongues* — discard to steal a Guild card or resource |
-| new actions `Name (Standard):` | 5 cards, 6 actions | *Prison Wardens* — Pressgang (Build), Execute (Influence) |
-| passive modifiers | 17 | *Gatekeepers* — collect 2 more dice when battling in a gate |
-| Vox `When Secured:` | 6 | *Populist Demands* — declare any ambition |
-
-(Cards can appear in more than one row.)
-
-The two structural pieces still missing are the **Unions** (attach to a played
-card, draw it at the end of the round) and the **Cartels** (hold a resource
-supply on the card) — both need state that does not exist yet. The Vox cards
-each need a `When Secured` decision node.
-
-## 5. Player board economy
+## 4. Player board economy
 
 Reconstructed: 5 city slots and 6 resource slots with raid costs
 `[1, 1, 2, 2, 3, 3]`; three resource slots open at setup (covering the two

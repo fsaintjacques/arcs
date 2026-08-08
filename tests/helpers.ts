@@ -6,6 +6,7 @@ import {
   newGame,
   resolveChanceMut,
   type Action,
+  type BattleState,
   type GameState,
   type VariantDef,
 } from '../src/engine';
@@ -76,6 +77,70 @@ export const ADMIN = 0;
 export const AGGRESSION = 1;
 export const CONSTRUCTION = 2;
 export const MOBILIZATION = 3;
+
+/**
+ * Drive the game forward with a trivial policy until the round advances past
+ * the one in progress. Used to observe end-of-round effects.
+ */
+export function settleRound(f: Fixture, limit = 200): void {
+  const startRounds = f.s.stats.rounds;
+  for (let i = 0; i < limit; i++) {
+    if (f.s.stats.rounds > startRounds) return;
+    const node = getPending(f.s, f.v);
+    if (node.kind === 'over') return;
+    if (node.kind === 'chance') {
+      resolveChanceMut(f.s, f.v, f.rng);
+      continue;
+    }
+    // Prefer the action that moves the round along fastest.
+    const prefer =
+      node.actions.find((a) => a.t === 'endTurn') ??
+      node.actions.find((a) => a.t === 'passInitiative') ??
+      node.actions[0];
+    applyActionMut(f.s, f.v, prefer);
+  }
+  throw new Error('round did not end within the step limit');
+}
+
+/** The same, but run to the end of the chapter so scoring happens. */
+export function settleToChapterEnd(f: Fixture, limit = 400): void {
+  const startChapters = f.s.stats.chapters;
+  for (let i = 0; i < limit; i++) {
+    if (f.s.stats.chapters > startChapters) return;
+    const node = getPending(f.s, f.v);
+    if (node.kind === 'over') return;
+    if (node.kind === 'chance') {
+      resolveChanceMut(f.s, f.v, f.rng);
+      continue;
+    }
+    const prefer =
+      node.actions.find((a) => a.t === 'passInitiative') ??
+      node.actions.find((a) => a.t === 'endTurn') ??
+      node.actions[0];
+    applyActionMut(f.s, f.v, prefer);
+  }
+  throw new Error('chapter did not end within the step limit');
+}
+
+/**
+ * A battle mid-resolution, with the roll already made. Only the fields a test
+ * cares about need naming; the rest default to "nothing rolled".
+ */
+export function battleState(partial: Partial<BattleState> & Pick<BattleState, 'system' | 'attacker' | 'defender'>): BattleState {
+  return {
+    dice: { assault: 0, skirmish: 0, raid: 0 },
+    selfHits: 0,
+    intercept: 0,
+    hits: 0,
+    buildingHits: 0,
+    keys: 0,
+    interceptResolved: false,
+    skirmishBlanks: 0,
+    pendingReroll: 0,
+    rerollDone: false,
+    ...partial,
+  };
+}
 
 /** Find the first action matching a predicate, or throw with context. */
 export function find<T extends Action>(list: Action[], pred: (a: Action) => boolean): T {

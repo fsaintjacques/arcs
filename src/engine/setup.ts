@@ -106,6 +106,9 @@ export function newGame(v: VariantDef, rng: RNG, setupIndex = 0): GameState {
   /** 5 tokens of each resource type in the general supply (p3). */
   const supply = {} as Record<ResourceType, number>;
   for (const r of RESOURCE_TYPES) supply[r] = 5;
+  /** No Cartel card is in play at setup, so nothing sits on one. */
+  const cartelZero = {} as Record<ResourceType, number>;
+  for (const r of RESOURCE_TYPES) cartelZero[r] = 0;
 
   // p5 step N: 3 ships + city in A, 3 ships + starport in B, 2 ships in each C.
   setup.starts.forEach((start, p) => {
@@ -180,6 +183,7 @@ export function newGame(v: VariantDef, rng: RNG, setupIndex = 0): GameState {
     systems,
     playerStates,
     supply,
+    cartel: cartelZero,
     court,
     courtDeck,
     courtDiscard: [],
@@ -193,6 +197,7 @@ export function newGame(v: VariantDef, rng: RNG, setupIndex = 0): GameState {
       played: [],
       seizedBy: null,
       consecutivePasses: 0,
+      ambitionDeclared: false,
     },
     turn: null,
     battle: null,
@@ -202,6 +207,9 @@ export function newGame(v: VariantDef, rng: RNG, setupIndex = 0): GameState {
     flipped: v.ambitionMarkers.map(() => false),
     phantom,
     reinforcing: null,
+    unions: [],
+    pendingVox: null,
+    peek: null,
     stats: {
       rounds: 0,
       chapters: 0,

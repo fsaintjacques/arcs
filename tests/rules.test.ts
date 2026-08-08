@@ -16,20 +16,7 @@ import {
   type Action,
   type GameState,
 } from '../src/engine';
-import {
-  ADMIN,
-  AGGRESSION,
-  CONSTRUCTION,
-  MOBILIZATION,
-  actions,
-  actor,
-  apply,
-  cardId,
-  find,
-  setHand,
-  settle,
-  startGame,
-} from './helpers';
+import { actions, actor, ADMIN, AGGRESSION, apply, battleState, cardId, CONSTRUCTION, find, MOBILIZATION, setHand, settle, startGame } from './helpers';
 
 describe('setup (p4-p5)', () => {
   it('places 3 ships + a city, 3 ships + a starport, and 2 ships', () => {
@@ -640,18 +627,12 @@ describe('battle (p14-p16)', () => {
   it('an intercept converts into one self-hit per fresh defending ship (p14)', () => {
     const { f, player, rival, system } = battleSetup(65);
     f.s.systems[system].fresh[rival] = 3;
-    f.s.battle = {
+    f.s.battle = battleState({
       system,
       attacker: player,
       defender: rival,
       dice: { assault: 1, skirmish: 0, raid: 0 },
-      selfHits: 0,
-      intercept: 0,
-      hits: 0,
-      buildingHits: 0,
-      keys: 0,
-      interceptResolved: false,
-    };
+    });
     f.s.phase = 'battleRoll';
     // Assault face index 2 is "1 hit + intercept"; 0.4 * 6 floors to 2.
     resolveChanceMut(f.s, f.v, () => 0.4);

@@ -3,6 +3,7 @@
  */
 import type { BuildingKind, GameState, ResourceType, SystemDef, VariantDef } from './types';
 import { gainResource } from './playerBoard';
+import { courtCard } from './court';
 
 /**
  * "You control a system and its contents if you have more fresh ships there
@@ -77,6 +78,23 @@ export function neighbours(v: VariantDef, s: GameState, system: number): number[
   return v.systems[system].adjacent.filter((n) => !s.systems[n].outOfPlay);
 }
 
+/**
+ * Which player, if any, holds the Cartel card for this resource type.
+ *
+ * A Cartel keeps its type's whole supply on the card — "you add it to Tycoon
+ * but can't spend it" — so while one is in play the general supply for that
+ * type is empty and tokens of it flow onto the card instead (p20).
+ */
+export function cartelHolder(s: GameState, type: ResourceType): number | null {
+  for (let p = 0; p < s.playerStates.length; p++) {
+    for (const id of s.playerStates[p].guildCards) {
+      const passives = courtCard(id).power?.passives ?? [];
+      if (passives.some((x) => x.t === 'cartel' && x.resource === type)) return p;
+    }
+  }
+  return null;
+}
+
 /** Take a resource from the general supply into a player's slots. */
 export function takeFromSupply(s: GameState, player: number, type: ResourceType): boolean {
   if (s.supply[type] <= 0) return false;
@@ -85,9 +103,25 @@ export function takeFromSupply(s: GameState, player: number, type: ResourceType)
   return true;
 }
 
-/** Return a resource token to the general supply. */
+/**
+ * Return a resource token to the general supply — or onto the Cartel card for
+ * its type, if one is in play and holding that supply.
+ */
 export function returnToSupply(s: GameState, type: ResourceType): void {
-  s.supply[type]++;
+  if (cartelHolder(s, type) !== null) s.cartel[type]++;
+  else s.supply[type]++;
+}
+
+/** Move a resource type's whole supply onto a newly acquired Cartel card. */
+export function collectCartelSupply(s: GameState, type: ResourceType): void {
+  s.cartel[type] += s.supply[type];
+  s.supply[type] = 0;
+}
+
+/** Release a Cartel's held supply back to the general supply. */
+export function releaseCartelSupply(s: GameState, type: ResourceType): void {
+  s.supply[type] += s.cartel[type];
+  s.cartel[type] = 0;
 }
 
 /** Every player other than `player` with a piece in the system. */
@@ -120,6 +154,7 @@ export function cloneState(s: GameState): GameState {
       hand: p.hand.slice(),
     })),
     supply: { ...s.supply },
+    cartel: { ...s.cartel },
     court: s.court.map((c) => ({ card: c.card, agents: c.agents.slice() })),
     courtDeck: s.courtDeck.slice(),
     courtDiscard: s.courtDiscard.slice(),
@@ -153,6 +188,9 @@ export function cloneState(s: GameState): GameState {
     availableMarkers: s.availableMarkers.slice(),
     flipped: s.flipped.slice(),
     phantom: { ...s.phantom },
+    unions: s.unions.map((u) => ({ ...u })),
+    pendingVox: s.pendingVox ? { ...s.pendingVox } : null,
+    peek: s.peek ? { ...s.peek } : null,
     stats: { ...s.stats },
   };
 }

@@ -40,14 +40,31 @@ function knownCards(s: GameState, player: number): number[] {
   for (const c of s.round.played) {
     if (!c.faceDown || c.player === player) known.push(c.card);
   }
+  // A Farseers peek reveals one Rival's whole hand to the peeking player, and
+  // `observe` leaves it in the view, so those cards are placed already.
+  const peeked = peekedHand(s, player);
+  if (peeked !== null) known.push(...s.playerStates[peeked].hand);
   return known;
+}
+
+/**
+ * Whose hand this observer may currently see, courtesy of Farseers.
+ *
+ * The reveal is exactly what the card grants — one named Rival's hand, and only
+ * while the swap decision is open. Choosing the target is a separate, earlier
+ * decision precisely so that this cannot leak more than one hand.
+ */
+function peekedHand(s: GameState, player: number): number | null {
+  if (!s.peek || s.peek.player !== player) return null;
+  return s.peek.target;
 }
 
 export function observe(s: GameState, v: VariantDef, player: number): Observation {
   const view = cloneState(s);
+  const peeked = peekedHand(s, player);
 
   for (let p = 0; p < s.players; p++) {
-    if (p === player) continue;
+    if (p === player || p === peeked) continue;
     view.playerStates[p].hand = [];
   }
   // Deck and discard order are unknown to everyone.
@@ -85,8 +102,9 @@ export function determinize(obs: Observation, v: VariantDef, rng: RNG): GameStat
     rng,
   );
 
+  const peeked = peekedHand(s, obs.player);
   for (let p = 0; p < s.players; p++) {
-    if (p === obs.player) continue;
+    if (p === obs.player || p === peeked) continue;
     s.playerStates[p].hand = pool.splice(0, obs.handSizes[p]);
   }
   s.round.played = s.round.played.map((c) =>

@@ -366,6 +366,9 @@ Places where the rulebook leaves a choice the engine resolves itself rather
 than surfacing as its own decision node. Each is a deliberate, documented
 simplification, not a rules reading.
 
+There are ten, in two groups: five in the core rules, and five that only come up
+once every Court card ability is live.
+
 - **Ransacking the Court** (p16) says "Secure *any* card that has any number of
   the defender's agents". The engine picks the card holding the most of the
   defender's agents, breaking ties leftmost.
@@ -381,6 +384,31 @@ simplification, not a rules reading.
   outcomes with an enumerable action space.
 - **Resource slot rearranging** (p17) is automatic: gained resources fill the
   leftmost empty open slot, and a returning city discards from the right.
+
+### Court card rulings
+
+Five more come from card interactions the cards themselves do not settle.
+
+- **A Cartel's stockpile when the card leaves play.** The card says it keeps its
+  resource type's supply, but not what happens when it is discarded. The engine
+  returns the stockpile to the general supply, which is the only reading that
+  keeps the tokens in the game. Tokens returned *while* a Cartel is in play flow
+  onto the card, and Rivals' post-scoring discards go there too.
+- **Only blank skirmish dice may be rerolled** (Skirmishers). A skirmish face is
+  either one hit or nothing, and the die never hurts the attacker, so rerolling a
+  face that already hit is strictly dominated. Offering only blanks removes no
+  reachable outcome and keeps the branching small.
+- **Execute takes Captives in capture order** (Prison Wardens). Which Rival an
+  executed agent belonged to only matters when Warlord scores and Trophies go
+  home, and the card gives the player no say in the choice.
+- **"Shuffle into the Court deck" puts the card on the bottom** (Song of Freedom,
+  Guild Struggle). Securing is a decision node with no RNG in scope by design, so
+  the engine uses a defined order instead. The Court deck's order is hidden
+  information either way, and `determinize()` reshuffles it for search.
+- **Sworn Guardians does not block Elder Broker's Trade.** Its text is "Rivals
+  cannot steal your resources", and the rulebook uses *steal* as a keyword —
+  raids steal, Silver-Tongues steals. Trade says "swap" and hands something back,
+  so it is not a theft.
 
 ## 12. Fine print used by the engine (p22)
 

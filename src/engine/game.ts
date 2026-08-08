@@ -17,8 +17,13 @@
  *     the defender's agents, breaking ties leftmost.
  *   - **Free actions from Prelude resources** are consumed before card pips,
  *     most-restrictive grant first, when both could pay for an action.
+ *
+ * A Vox card secured mid-turn or mid-Ransack overlays `pendingVox` on the phase
+ * rather than replacing it, so the interrupted flow resumes afterwards. Both
+ * `afterAction` and `settleBattle` stall while one is pending.
  */
 import {
+  cartelHolder,
   cloneState,
   controlOf,
   freeBuildingSlots,
@@ -34,22 +39,36 @@ import {
 } from './board';
 import { actionCard, SUIT_ACTIONS } from './cards';
 import { courtCard } from './court';
-import { DICE_PER_TYPE, rollBattle } from './dice';
+import { DICE_PER_TYPE, rerollSkirmish, rollBattle } from './dice';
 import { flipLowestUnflipped, highestAvailable, scoreChapter } from './ambitions';
 import { isGate } from './map';
 import { compactResources, heldResources, openResourceSlots, raidCost } from './playerBoard';
 import {
   applyCardAction,
   applyCardPrelude,
+  applyPeekSwap,
+  applyVox,
+  applyVoxImmediate,
+  canDeclareOnFollow,
+  canPeek,
+  canRerollSkirmish,
   cardActionCost,
   cardActions,
+  discardGuildCard,
   extraBattleDice,
+  gainGuildCard,
   loyalTypes,
+  peekSwapActions,
+  peekTargetActions,
   preludeCardActions,
+  provokeOutrage,
   skipsZeroMarker,
-  survivesOutrage,
+  stealGuildCard,
   theftImmune,
   theftImmunityCard,
+  voxActions,
+  voxNeedsDecision,
+  weaponIcons,
 } from './powers';
 import { shuffle } from './rng';
 import type {
@@ -60,12 +79,13 @@ import type {
   DieType,
   GameState,
   PendingNode,
+  Phase,
   PlayMode,
   ResourceType,
   RNG,
   VariantDef,
 } from './types';
-import { AMBITIONS } from './types';
+import { AMBITIONS, RESOURCE_TYPES } from './types';
 
 export { cloneState };
 
@@ -74,6 +94,11 @@ export { cloneState };
 // ---------------------------------------------------------------------------
 
 export function getPending(s: GameState, v: VariantDef): PendingNode {
+  // A pending Vox effect belongs to whoever secured the card, and outranks the
+  // phase it interrupted.
+  if (s.pendingVox) {
+    return { kind: 'decision', player: s.pendingVox.player, actions: legalActions(s, v) };
+  }
   switch (s.phase) {
     case 'over':
       return { kind: 'over' };
@@ -86,6 +111,9 @@ export function getPending(s: GameState, v: VariantDef): PendingNode {
       return { kind: 'decision', player: s.reinforcing!, actions: legalActions(s, v) };
     case 'play':
       return { kind: 'decision', player: currentActor(s), actions: legalActions(s, v) };
+    case 'peekTarget':
+    case 'peekSwap':
+      return { kind: 'decision', player: s.peek!.player, actions: legalActions(s, v) };
     default:
       return { kind: 'decision', player: s.turn!.player, actions: legalActions(s, v) };
   }
@@ -105,6 +133,7 @@ function mulliganPlayer(s: GameState): number {
 // ---------------------------------------------------------------------------
 
 export function legalActions(s: GameState, v: VariantDef): Action[] {
+  if (s.pendingVox) return voxActions(s);
   switch (s.phase) {
     case 'mulligan':
       return [
@@ -119,8 +148,14 @@ export function legalActions(s: GameState, v: VariantDef): Action[] {
       return turnActions(s, v);
     case 'catapult':
       return catapultActions(s, v);
+    case 'battleReroll':
+      return rerollActions(s);
     case 'battleAssign':
       return battleActions(s, v);
+    case 'peekTarget':
+      return peekTargetActions(s, s.peek!.player);
+    case 'peekSwap':
+      return peekSwapActions(s);
     case 'reinforce':
       return v.systems
         .filter((sys) => sys.kind === 'gate' && !s.systems[sys.id].outOfPlay)
@@ -165,19 +200,8 @@ function preludeActions(s: GameState, v: VariantDef): Action[] {
 
   // Declaring and seizing are decided before any Prelude action (p20).
   if (!turn.preludeOver && turn.preludeSpent.length === 0) {
-    if (
-      turn.mode === 'lead' &&
-      !turn.declaredThisTurn &&
-      s.availableMarkers.length > 0 &&
-      s.round.lead &&
-      !s.round.lead.faceDown
-    ) {
-      const ambition = actionCard(s.round.lead.card).ambition;
-      if (ambition === 'any') {
-        for (const a of AMBITIONS) acts.push({ t: 'declareAmbition', ambition: a });
-      } else if (ambition) {
-        acts.push({ t: 'declareAmbition', ambition });
-      }
+    for (const ambition of declarableAmbitions(s)) {
+      acts.push({ t: 'declareAmbition', ambition });
     }
     if (canSeize(s, turn.player)) {
       for (const card of p.hand) acts.push({ t: 'seize', card });
@@ -205,6 +229,35 @@ function preludeActions(s: GameState, v: VariantDef): Action[] {
   acts.push(...preludeCardActions(s, v, turn.player));
   acts.push({ t: 'beginActions' });
   return acts;
+}
+
+/**
+ * Which ambitions the current turn may declare.
+ *
+ * The normal route is the leader declaring the ambition printed on a face-up
+ * lead card (p9). **Galactic Bards** adds a second: "When you Surpass or Pivot,
+ * before taking any actions, you may declare the ambition on your played card if
+ * an ambition has not been declared yet this round."
+ */
+function declarableAmbitions(s: GameState): AmbitionId[] {
+  const turn = s.turn!;
+  if (turn.declaredThisTurn || s.availableMarkers.length === 0) return [];
+
+  let card: number | null = null;
+  if (turn.mode === 'lead') {
+    if (!s.round.lead || s.round.lead.faceDown) return [];
+    card = s.round.lead.card;
+  } else if (turn.mode === 'surpass' || turn.mode === 'pivot') {
+    if (!canDeclareOnFollow(s.playerStates[turn.player])) return [];
+    if (s.round.ambitionDeclared) return [];
+    card = turn.card;
+  } else {
+    return []; // a Copy play is face down and declares nothing
+  }
+
+  const ambition = actionCard(card).ambition;
+  if (ambition === 'any') return [...AMBITIONS];
+  return ambition ? [ambition] : [];
 }
 
 /**
@@ -245,7 +298,7 @@ function turnActions(s: GameState, v: VariantDef): Action[] {
   if (kinds.has('influence')) acts.push(...influenceActions(s, player));
   if (kinds.has('secure')) acts.push(...secureActions(s, player));
   if (kinds.has('battle')) acts.push(...battleSetupActions(s, v, player));
-  acts.push(...cardActions(s, player, kinds as Set<string>));
+  acts.push(...cardActions(s, v, player, kinds as Set<string>));
 
   acts.push({ t: 'endTurn' });
   return acts;
@@ -382,6 +435,23 @@ function catapultActions(s: GameState, v: VariantDef): Action[] {
   return acts;
 }
 
+/**
+ * Skirmishers: "After you roll in battle, you may reroll a number of skirmish
+ * dice up to your total Weapon icons from resources and cards."
+ *
+ * Engine ruling: only *blank* skirmish dice are offered. A skirmish face is
+ * either one hit or nothing and the die never hurts the attacker, so rerolling
+ * a face that already hit is strictly dominated — it can only lose a hit. Every
+ * outcome reachable by rerolling a hit is reachable by rerolling fewer dice.
+ */
+function rerollActions(s: GameState): Action[] {
+  const b = s.battle!;
+  const most = Math.min(weaponIcons(s.playerStates[b.attacker]), b.skirmishBlanks);
+  const acts: Action[] = [];
+  for (let count = 0; count <= most; count++) acts.push({ t: 'rerollSkirmish', count });
+  return acts;
+}
+
 /** Hits are assigned one at a time so the action space stays enumerable. */
 function battleActions(s: GameState, v: VariantDef): Action[] {
   const b = s.battle!;
@@ -448,16 +518,41 @@ export function resolveChanceMut(s: GameState, v: VariantDef, rng: RNG): void {
   }
   if (s.phase === 'battleRoll') {
     const b = s.battle!;
+
+    // A Skirmishers reroll replaces only the blank skirmish dice it names; the
+    // rest of the roll stands, and no new intercept can appear because the
+    // skirmish die has no intercept face.
+    if (b.pendingReroll > 0) {
+      const { hits, blanks } = rerollSkirmish(b.pendingReroll, rng);
+      b.hits += hits;
+      b.skirmishBlanks = b.skirmishBlanks - b.pendingReroll + blanks;
+      b.pendingReroll = 0;
+      b.rerollDone = true;
+      s.phase = 'battleAssign';
+      settleBattle(s, v);
+      return;
+    }
+
     const totals = rollBattle(b.dice, rng);
     b.selfHits = totals.selfHits;
     b.intercept = totals.intercept;
     b.hits = totals.hits;
     b.buildingHits = totals.buildingHits;
     b.keys = totals.keys;
+    b.skirmishBlanks = totals.skirmishBlanks;
     // Step 4.2: the intercept converts into self-hits, once per battle (p14).
     if (b.intercept > 0) {
       b.selfHits += s.systems[b.system].fresh[b.defender];
       b.interceptResolved = true;
+    }
+    if (
+      !b.rerollDone &&
+      b.skirmishBlanks > 0 &&
+      canRerollSkirmish(s.playerStates[b.attacker]) &&
+      weaponIcons(s.playerStates[b.attacker]) > 0
+    ) {
+      s.phase = 'battleReroll';
+      return;
     }
     s.phase = 'battleAssign';
     settleBattle(s, v);
@@ -505,7 +600,41 @@ export function applyAction(s: GameState, v: VariantDef, a: Action): GameState {
 }
 
 export function applyActionMut(s: GameState, v: VariantDef, a: Action): void {
+  // A pending Vox effect is resolved before anything else can happen.
+  if (s.pendingVox) {
+    resolveVox(s, v, a);
+    return;
+  }
+
   switch (a.t) {
+    case 'rerollSkirmish': {
+      const b = s.battle!;
+      if (a.count > 0) {
+        b.pendingReroll = a.count;
+        s.phase = 'battleRoll';
+        return;
+      }
+      b.rerollDone = true;
+      s.phase = 'battleAssign';
+      settleBattle(s, v);
+      return;
+    }
+    case 'peekTarget': {
+      const peek = s.peek!;
+      if (a.target === null) {
+        endPeek(s, v);
+        return;
+      }
+      peek.target = a.target;
+      s.phase = 'peekSwap';
+      return;
+    }
+    case 'peekSwap':
+    case 'peekSwapSkip': {
+      applyPeekSwap(s, a);
+      endPeek(s, v);
+      return;
+    }
     case 'mulligan': {
       const player = mulliganPlayer(s);
       if (a.take) {
@@ -526,7 +655,9 @@ export function applyActionMut(s: GameState, v: VariantDef, a: Action): void {
       return;
     }
     case 'declareAmbition': {
-      declareAmbition(s, v, a.ambition);
+      const turn = s.turn!;
+      declareAmbition(s, v, a.ambition, turn.player, turn.mode);
+      offerPeek(s, turn.player, 'prelude');
       return;
     }
     case 'seize': {
@@ -636,6 +767,7 @@ function playCard(s: GameState, v: VariantDef, a: Action): void {
   s.turn = {
     player,
     mode,
+    card,
     pipsLeft: pips,
     pipActions: [...pipActions],
     freeActions: [],
@@ -649,16 +781,75 @@ function playCard(s: GameState, v: VariantDef, a: Action): void {
   s.phase = 'prelude';
 }
 
-function declareAmbition(s: GameState, v: VariantDef, ambition: AmbitionId): void {
+/**
+ * Declare an ambition (p9). `player` is the declarer, which is the player on
+ * turn for the normal route but can be a securing player for Populist Demands.
+ */
+function declareAmbition(
+  s: GameState,
+  v: VariantDef,
+  ambition: AmbitionId,
+  player: number,
+  mode: PlayMode,
+): void {
   const marker = highestAvailable(s, v);
   if (marker === null) throw new Error('no ambition marker available');
   s.availableMarkers.splice(s.availableMarkers.indexOf(marker), 1);
   s.declared[ambition].push(marker);
-  s.turn!.declaredThisTurn = true;
+  if (s.turn && s.turn.player === player) s.turn.declaredThisTurn = true;
+  s.round.ambitionDeclared = true;
   // "Place the zero marker onto the lead card ... its card number is now 0."
-  // Secret Order exempts Keeper and Empath.
-  if (!skipsZeroMarker(s.playerStates[s.turn!.player], ambition)) s.round.leadNumber = 0;
+  // Secret Order exempts Keeper and Empath; Galactic Bards exempts its own
+  // Surpass/Pivot declaration.
+  if (!skipsZeroMarker(s.playerStates[player], ambition, mode)) s.round.leadNumber = 0;
   s.stats.ambitionsDeclared++;
+}
+
+/**
+ * Farseers: "When you declare an ambition, look at a Rival's hand." Opens the
+ * two-step peek, returning to `resume` afterwards. Returns whether it opened.
+ */
+function offerPeek(s: GameState, player: number, resume: Phase): boolean {
+  if (!canPeek(s.playerStates[player])) return false;
+  const hasTarget = s.playerStates.some((p, i) => i !== player && p.hand.length > 0);
+  if (!hasTarget) return false;
+  s.peek = { player, target: null, resume };
+  s.phase = 'peekTarget';
+  return true;
+}
+
+/**
+ * Close a Farseers peek and continue whatever it interrupted. The prelude just
+ * carries on; a battle or a turn needs its own continuation re-run, since the
+ * interrupted call already returned.
+ */
+function endPeek(s: GameState, v: VariantDef): void {
+  const resume = s.peek!.resume;
+  s.peek = null;
+  s.phase = resume;
+  if (resume === 'battleAssign') settleBattle(s, v);
+  else if (resume === 'actions') afterAction(s, v);
+}
+
+/**
+ * Resolve a pending Vox `When Secured` effect, then resume the flow it
+ * interrupted — the rest of the turn's actions, or the rest of the battle.
+ */
+function resolveVox(s: GameState, v: VariantDef, a: Action): void {
+  const pending = s.pendingVox!;
+  const player = pending.player;
+  const resume: Phase = pending.resume === 'battle' ? 'battleAssign' : 'actions';
+  const { declare } = applyVox(s, a);
+
+  if (declare) {
+    declareAmbition(s, v, declare, player, s.turn?.mode ?? 'lead');
+    // Farseers triggers on any declaration, including this one.
+    if (offerPeek(s, player, resume)) return;
+  }
+
+  s.phase = resume;
+  if (resume === 'battleAssign') settleBattle(s, v);
+  else afterAction(s, v);
 }
 
 /**
@@ -803,7 +994,7 @@ function performAction(s: GameState, v: VariantDef, a: Action): void {
     }
     case 'cardAction': {
       payFor(s, cardActionCost(a.card, a.name));
-      applyCardAction(s, player, a.card, a.name);
+      applyCardAction(s, player, a);
       break;
     }
     case 'battle': {
@@ -819,6 +1010,9 @@ function performAction(s: GameState, v: VariantDef, a: Action): void {
         buildingHits: 0,
         keys: 0,
         interceptResolved: false,
+        skirmishBlanks: 0,
+        pendingReroll: 0,
+        rerollDone: false,
       };
       s.stats.battles++;
       s.phase = 'battleRoll';
@@ -905,10 +1099,20 @@ function secureCard(
   courtSlot.agents[player] = 0;
 
   if (card.kind === 'vox' || card.discardOnSecure) {
-    // Vox abilities are not yet dispatched — see UNIMPLEMENTED_POWERS in court.ts.
-    s.courtDiscard.push(courtSlot.card);
+    // A Vox card resolves When Secured. The ones that need a decision overlay
+    // `pendingVox` on the current phase; `afterAction` and `settleBattle` stall
+    // until it is answered, then resume where they left off.
+    if (voxNeedsDecision(courtSlot.card)) {
+      s.pendingVox = {
+        card: courtSlot.card,
+        player,
+        resume: s.phase === 'battleAssign' ? 'battle' : 'actions',
+      };
+    } else {
+      applyVoxImmediate(s, player, courtSlot.card);
+    }
   } else {
-    s.playerStates[player].guildCards.push(courtSlot.card);
+    gainGuildCard(s, player, courtSlot.card);
     if (s.turn) s.turn.securedThisPrelude.push(courtSlot.card);
   }
 
@@ -965,10 +1169,8 @@ function battleAssign(s: GameState, v: VariantDef, a: Action): void {
       break;
     }
     case 'raidCard': {
-      const victim = s.playerStates[b.defender];
       b.keys -= courtCard(a.card).raidCost;
-      victim.guildCards.splice(victim.guildCards.indexOf(a.card), 1);
-      s.playerStates[b.attacker].guildCards.push(a.card);
+      stealGuildCard(s, b.defender, b.attacker, a.card);
       break;
     }
     case 'raidDone': {
@@ -1040,28 +1242,7 @@ function destroyCity(
   system: number,
 ): void {
   const type = v.systems[system].planetType;
-  const p = s.playerStates[destroyer];
-
-  if (type) {
-    for (let i = 0; i < p.resources.length; i++) {
-      if (p.resources[i] === type) {
-        returnToSupply(s, type);
-        p.resources[i] = null;
-      }
-    }
-    const kept: number[] = [];
-    for (const card of p.guildCards) {
-      // "If you Provoke Outrage, keep this card" — the Loyal cards (p20).
-      if (courtCard(card).suit === type && !survivesOutrage(card)) s.courtDiscard.push(card);
-      else kept.push(card);
-    }
-    p.guildCards = kept;
-
-    if (!p.outrage[type]) {
-      p.outrage[type] = true;
-      if (p.agentsSupply > 0) p.agentsSupply--;
-    }
-  }
+  if (type) provokeOutrage(s, destroyer, type);
 
   // Ransack: secure a card holding any of the victim's agents. Engine ruling —
   // pick the card with the most of them, ties leftmost.
@@ -1078,6 +1259,8 @@ function destroyCity(
 
 /** Advance or finish the battle once a hit has been assigned. */
 function settleBattle(s: GameState, v: VariantDef): void {
+  // A Ransack can secure a Vox card mid-battle; answer it before continuing.
+  if (s.pendingVox) return;
   const b = s.battle;
   if (!b) return;
   const st = s.systems[b.system];
@@ -1112,6 +1295,8 @@ function settleBattle(s: GameState, v: VariantDef): void {
 
 /** After any action: if nothing can still be spent, the turn ends itself. */
 function afterAction(s: GameState, v: VariantDef): void {
+  // A secured Vox card is answered before the turn can advance or end.
+  if (s.pendingVox) return;
   const turn = s.turn;
   if (!turn) return;
   if (turn.pipsLeft === 0 && turn.freeActions.length === 0) {
@@ -1156,6 +1341,7 @@ function beginRound(s: GameState, v: VariantDef): void {
   s.round.leadNumber = 0;
   s.round.played = [];
   s.round.seizedBy = null;
+  s.round.ambitionDeclared = false;
   s.initiativeSeized = false;
   s.turn = null;
   s.phase = 'play';
@@ -1213,8 +1399,26 @@ function passInitiative(s: GameState, v: VariantDef): void {
   beginRound(s, v);
 }
 
+/**
+ * Discard the round's played cards — but first hand out any card a Union is
+ * attached to: "When the round ends, draw that card into your hand and discard
+ * this card." (p20)
+ */
 function discardPlayed(s: GameState): void {
-  for (const c of s.round.played) s.actionDiscard.push(c.card);
+  const claimed = new Map<number, number>(); // action card -> claiming player
+  for (const u of s.unions) {
+    if (s.round.played.some((c) => c.card === u.target) && !claimed.has(u.target)) {
+      claimed.set(u.target, u.player);
+    }
+    discardGuildCard(s, u.player, u.card);
+  }
+  s.unions = [];
+
+  for (const c of s.round.played) {
+    const claimer = claimed.get(c.card);
+    if (claimer !== undefined) s.playerStates[claimer].hand.push(c.card);
+    else s.actionDiscard.push(c.card);
+  }
   s.round.played = [];
 }
 
@@ -1257,6 +1461,7 @@ function endChapter(s: GameState, v: VariantDef): void {
   const scored = new Set(results.map((r) => r.ambition));
   if (scored.has('warlord')) returnTrophies(s);
   if (scored.has('tyrant')) returnCaptives(s);
+  cartelSqueeze(s);
 
   for (const a of AMBITIONS) {
     s.availableMarkers.push(...s.declared[a]);
@@ -1276,13 +1481,36 @@ function endChapter(s: GameState, v: VariantDef): void {
   s.phase = 'deal';
 }
 
-/** Trophies go home: ships and starports to supplies, cities to their board. */
+/**
+ * "After scoring, Rivals discard all Material / Fuel" — the two Cartel cards
+ * (p20). The tokens go onto the Cartel card, which is where that type's supply
+ * lives while the card is in play.
+ */
+function cartelSqueeze(s: GameState): void {
+  for (const type of RESOURCE_TYPES) {
+    const holder = cartelHolder(s, type);
+    if (holder === null) continue;
+    for (let p = 0; p < s.players; p++) {
+      if (p === holder) continue;
+      const ps = s.playerStates[p];
+      for (let i = 0; i < ps.resources.length; i++) {
+        if (ps.resources[i] === type) {
+          ps.resources[i] = null;
+          s.cartel[type]++;
+        }
+      }
+    }
+  }
+}
+
+/** Trophies go home: pieces to their supplies, cities back onto their board. */
 function returnTrophies(s: GameState): void {
   for (const p of s.playerStates) {
     for (const t of p.trophies) {
       const owner = s.playerStates[t.owner];
       if (t.kind === 'ship') owner.shipsSupply++;
       else if (t.kind === 'starport') owner.starportsSupply++;
+      else if (t.kind === 'agent') owner.agentsSupply++;
       else {
         owner.citiesUsed = Math.max(0, owner.citiesUsed - 1);
         compactResources(owner);
