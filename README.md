@@ -162,15 +162,12 @@ parameters.
 Three details that turned out to matter more than the search itself:
 
 - **Cascade settling.** A one-step eval scores `battle` *before* the dice exist,
-  so it never fights: in a 2-player batch, battle was offered 163 times and
-  taken 0. Playing the cascade out before scoring took that to 104 of 164 —
-  worth more than any weight tuning so far.
+  so it never fights. Playing the cascade out before scoring is what makes the
+  action reachable at all.
 - **Exact die faces, not matching odds.** The first version inferred the assault
   and raid faces from published probabilities. The inference matched every quoted
   statistic and still had the wrong symbols sharing faces — the joint
-  distribution was wrong where every marginal was right. (It was credited with
-  moving the ladder too, but that was measured on the harness described under
-  Results, so the size of the effect is unknown.)
+  distribution was wrong where every marginal was right.
 - **max^n backup, not minimax.** With 3–4 players, backing up a single scalar
   and assuming the opponents minimise your score models a coalition that is not
   in the game. Each node carries a value per seat and selection maximises the
@@ -204,89 +201,17 @@ whether the interval excludes zero.
 
 **Deals are paired and seats are permuted**, and both are needed. Permuting
 alone leaves the agents' cyclic order fixed, and in a lead-and-follow game
-sitting immediately after a weak player is worth real points — two *identical*
-greedy agents posted 78% / 22% under rotation. Pairing alone would leave seat
-advantage in. Together they make the deal and the seat controlled variables:
-identical agents come out exactly 50/50, with zero variance, and a test asserts
-it.
+sitting immediately after a weak player is worth real points; pairing alone
+would leave seat advantage in. Together they make the deal and the seat
+controlled variables — identical agents come out exactly 50/50, with zero
+variance, and a test asserts it.
 
-## Results
+## Measurements
 
-All from the **paired** harness playing the **printed setup deck** — shuffle the
-four cards for your player count, draw one, and take positions from the
-initiative marker, with every deal played from every seating. All at `--seed 1`.
-Numbers published before these fixes are not comparable; see below.
-
-Two players:
-
-| matchup | games | deals | win % | paired difference | separated |
-|---|---|---|---|---|---|
-| `greedy` vs `random+` | 120 | 60 | **100.0** / 0.0 | +100.0 ±0.0 | yes |
-| `mcts` vs `greedy` | 120 | 60 | **70.0** / 30.0 | +40.0 ±14.1 | yes |
-| `random+` vs `random` | 2000 | 1000 | **60.0** / 40.0 | +20.0 ±4.2 | yes |
-| `greedy` vs `mc` | 120 | 60 | 51.7 / 48.3 | +3.3 ±15.4 | **no** |
-
-Three players:
-
-| field | games | deals | win % | `greedy` vs `mc` |
-|---|---|---|---|---|
-| `greedy`, `mc`, `random` | 180 | 30 | **57.2** / 42.8 / 0.0 | +14.4 ±13.5 |
-
-`mcts` > `greedy` > `mc` > `random+` > `random`, with `greedy` vs `mc` still the
-one rung not settled head-to-head — it is now a dead heat at two players — though
-`greedy` takes the 3-player field.
-
-**The opening is a variable, and it moved again on real data.** Same matchup,
-same agents, four ways of choosing the opening:
-
-| openings | `greedy` vs `mc` (2p) | separated |
-|---|---|---|
-| 6 fixed rotations (originally) | +31.7 ±15.1 | yes |
-| 4 reconstructed cards | +18.3 ±18.3 | no |
-| ~3000 free draws (`--free-setup`) | +13.3 ±17.1 | no |
-| **the printed 12** | **+3.3 ±15.4** | no |
-
-The trend runs one way the whole time: the freer and more real the opening, the
-smaller `greedy`'s edge. Some of that original 31.7 was an edge *on those six
-boards*, and some of the 18.3 was an edge on four boards this project invented.
-The 3-player field held its separation throughout, which is the recurring
-pattern here: the multiplayer result is the durable one.
-
-**The measurement was broken, and finding that out was worth more than any result
-it produced.** The batch runner advanced the seed *and* the setup index on every
-game while cycling seatings through the `n!` permutations. At two players that
-aliases seating to setup parity exactly — one agent got every even setup, the
-other every odd one — so the permutations cancelled nothing. Two **identical**
-greedy agents, eight replications:
-
-| scheme | mean win-share gap | sd |
-|---|---|---|
-| paired (now) | **0.00** | 0.00 |
-| unpaired (before) | **−13.75** | 12.46 |
-
-An agent losing to a copy of itself by 14 points is larger than most effects this
-project reported. Fixing it forced two corrections: `random+` really does beat
-`random` (called "no improvement" four times), and `greedy` beats `mc` in both
-player counts, undoing a "flip" previously credited to the map transcription. The
-`mcts` result survived, at 65.0 rather than 71.7.
-
-Worth noting what pairing did *not* do: the spread is unchanged (sd 9.49 either
-way). Common random numbers only reduce variance when the agents' play stays
-correlated, and here it diverges within a few decisions. The win was removing a
-confound, not tightening an interval.
-
-**A second measurement bug, in the search itself.** `determinize()` forgot cards
-played face up in earlier rounds of the chapter, so **65% of sampled worlds
-contained a card the observer had watched being played** — 1.56 apiece. Search
-agents were spending budget on impossible worlds. Now zero.
-
-**Finishing the Court exposed a hole in the bots, not the engine.** Three
-abilities are offered constantly and never once taken — Farseers' Prelude (998
-offers in 40 games), attaching a Union (119), Execute (15). `eval.ts` has no term
-for hand quality, so trading cards for better cards evaluates as zero.
-
-See [docs/FINDINGS.md](docs/FINDINGS.md) for the evidence, the negative results,
-and a belief model that measured as worthless and why.
+The bots are a scaffold for engine work, not the point of it — they exist to
+drive every rule hard enough to find the places it is wrong. Results, negative
+results and the methodology traps that cost real time live in
+[docs/FINDINGS.md](docs/FINDINGS.md).
 
 ## Layout
 
