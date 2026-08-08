@@ -175,15 +175,14 @@ Two players:
 |---|---|---|---|
 | `random+` vs `random` | 40 | 52.5 / 47.5 | 3.9 / 4.1 |
 | `greedy` vs `random+` | 40 | **100.0** / 0.0 | 44.6 / 2.4 |
-| `greedy` vs `mc` | 40 | **77.5** / 22.5 | 32.9 / 16.2 |
-| `mcts` vs `greedy` | 60 | **65.0** / 35.0 | 23.2 / 24.3 |
+| `greedy` vs `mc` | 40 | **67.5** / 32.5 | 32.0 / 20.0 |
+| `greedy` vs `mcts` | 60 | 55.0 / 45.0 | 24.5 / 21.5 |
 
-Three and four players:
+Three players:
 
 | field | games | win % |
 |---|---|---|
-| `greedy`, `mc`, `random` | 60 | **63.3** / 36.7 / 0.0 |
-| `greedy`, `greedy`, `mc`, `random` | 48 | **50.0** / 35.4 / 14.6 / 0.0 |
+| `greedy`, `mc`, `random` | 60 | **65.0** / 35.0 / 0.0 |
 
 Three results are worth more than the ordering:
 
@@ -194,19 +193,22 @@ starport, then build a ship at it; move in, then battle). Valuing the first
 action of that sequence against a random continuation prices the setup at
 nothing.
 
-**MCTS beats greedy 65/35** while scoring slightly *less* Power (23.2 vs 24.3).
-That is what optimising the right objective looks like: rollouts are valued on
-final standing, not on Power, so the search prefers winning by 1 over losing by
-5 with a bigger number on the track.
+**`greedy` and `mcts` are not separated.** This matchup has now flipped three
+times — 50/50 with inferred dice, 35/65 once the dice were corrected, 55/45
+once Guild card abilities went live — every time within a ±12.6 interval. The
+honest reading is that these two agents are closer together than 60 games can
+resolve, and that the matchup is sensitive to exactly the rules details that
+kept turning out to be wrong. Separating them needs either many more games or
+two agents further apart.
 
 **`random+` is not actually better than `random`** — 52.5/47.5 is inside the
 ±15.5 interval. "Never waste a turn" sounds like an improvement and is not one
 at this level, which is a useful reminder that a plausible heuristic is a
 hypothesis, not a fact.
 
-All four numbers moved when the battle dice were corrected from the aid
-booklet; the `mcts` row moved most, from an even split to a clear win. See
-[docs/FINDINGS.md](docs/FINDINGS.md).
+Every row here has moved at least once as component data was corrected — first
+the battle dice, then the Guild card abilities. See
+[docs/FINDINGS.md](docs/FINDINGS.md) for what changed and why.
 
 ## Layout
 

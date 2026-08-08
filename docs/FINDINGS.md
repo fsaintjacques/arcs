@@ -4,9 +4,10 @@ Research notes from building the engine and the first bots. Headline numbers
 are in the README; this keeps the evidence, the negative results, and the
 methodology traps that cost real time.
 
-Everything here describes **this engine's Arcs**, which is missing Guild card
-powers and uses a reconstructed map (see [DATA-GAPS.md](DATA-GAPS.md)). Treat
-the strategic conclusions as provisional until those land.
+Everything here describes **this engine's Arcs**. The Court cards are now real
+data with 13 of 31 abilities dispatched, but the map is still reconstructed
+(see [DATA-GAPS.md](DATA-GAPS.md)), so treat the strategic conclusions as
+provisional.
 
 ## Methodology traps
 
@@ -91,9 +92,11 @@ What changed is correlation: the intercept face also deals a hit, two-hit faces
 no longer always cost you a ship, and the raid die trades a self-hit face for a
 second intercept face.
 
-That is enough to reorder the ladder. Against the inferred dice, `mcts` and
-`greedy` split 50/50 over 60 games. Against the real ones, `mcts` wins 65/35.
-`random+` vs `random` moved the other way, from 65/35 to an even split.
+That was enough to move the ladder. Against the inferred dice, `mcts` and
+`greedy` split 50/50 over 60 games; against the real ones the point estimate
+went to 65/35 for `mcts` (and then back the other way once card abilities
+landed — see below). `random+` vs `random` moved too, from 65/35 to an even
+split.
 
 The lesson is that aggregate statistics are not a substitute for the joint
 distribution: a bot that decides *how many of which die to collect* is reading
@@ -101,7 +104,8 @@ exactly the structure that averages throw away.
 
 ## The ladder
 
-All numbers below use the corrected dice.
+Current numbers: corrected dice, and the first tranche of Guild card abilities
+live.
 
 2 players:
 
@@ -109,15 +113,37 @@ All numbers below use the corrected dice.
 |---|---|---|---|
 | `random+` vs `random` | 40 | 52.5 / 47.5 | 3.9 / 4.1 |
 | `greedy` vs `random+` | 40 | 100.0 / 0.0 | 44.6 / 2.4 |
-| `greedy` vs `mc` | 40 | 77.5 / 22.5 | 32.9 / 16.2 |
-| `mcts` vs `greedy` | 60 | 65.0 / 35.0 | 23.2 / 24.3 |
+| `greedy` vs `mc` | 40 | 67.5 / 32.5 | 32.0 / 20.0 |
+| `greedy` vs `mcts` | 60 | 55.0 / 45.0 | 24.5 / 21.5 |
 
-3 and 4 players:
+3 players:
 
 | field | games | win % |
 |---|---|---|
-| `greedy`, `mc`, `random` | 60 | 63.3 / 36.7 / 0.0 |
-| `greedy`, `greedy`, `mc`, `random` | 48 | 50.0 / 35.4 / 14.6 / 0.0 |
+| `greedy`, `mc`, `random` | 60 | 65.0 / 35.0 / 0.0 |
+
+An earlier 4-player run put two identical greedy seats at 43.8% and 41.7% — a
+useful check that permuted seating is doing its job.
+
+### The same matchup has flipped three times
+
+`greedy` vs `mcts`, same agents, same seeds, 60 games each:
+
+| rules state | greedy | mcts |
+|---|---|---|
+| inferred die faces | 50.0 | 50.0 |
+| corrected die faces | 35.0 | **65.0** |
+| + Guild card abilities | **55.0** | 45.0 |
+
+Every one of those sits inside a ±12.6 interval. The honest conclusion is not
+"abilities favour greedy" — it is that **these two agents are closer together
+than 60 games can resolve**, and that reporting any single row as a ranking is
+reading noise. Two independent data corrections were each enough to drag the
+point estimate across the midline.
+
+Worth remembering the next time a 60-game batch looks decisive. The 24-game
+read of 58/42 for `mcts` was flagged as noise here when it happened; the same
+thing has now happened twice more at 60.
 
 ### `random+` is not an improvement
 
@@ -131,7 +157,7 @@ it keeps rollouts moving, but it is not evidence that the heuristic is sound.
 
 `mc` samples worlds and plays each candidate action out several times, which is
 strictly more information than greedy's single settled lookahead — and it loses
-22.5/77.5 heads-up, and takes third of four behind two greedy seats.
+32.5/67.5 heads-up, and comes second to greedy in every multiplayer field.
 
 The reason is structural: `mc` has no tree, so it cannot see its own follow-up
 pips. An Arcs turn is a *sequence* of 1–4 dependent actions (build a starport,
@@ -139,22 +165,14 @@ then build a ship at it; move in, then battle), and evaluating the first action
 of that sequence against a random continuation prices the setup at close to
 nothing. More sampling does not beat a better-shaped one-step value here.
 
-### MCTS wins by winning smaller
+### MCTS consistently scores less Power than greedy
 
-`mcts` takes `greedy` 65/35 over 60 games (±12.1) while finishing with *lower*
-mean Power, 23.2 against 24.3. It also builds less: 3.9 cities to greedy's 4.5,
-and fewer Tycoon and Keeper tokens.
-
-That combination is the point rather than a puzzle. Rollouts are valued on final
-standing, not on Power, so the search has no reason to prefer a position that
-scores 40 and loses to one that scores 24 and wins. Greedy's evaluation is
-Power-shaped and cannot express the difference.
-
-It is worth stressing how much of this rests on the dice. The same matchup was
-an even 50/50 against the inferred die faces. Search reads the joint
-distribution of a dice pool — which faces co-occur, not just their averages —
-so it was the agent most damaged by getting that distribution wrong, and the one
-that gained most from fixing it.
+Across every version of the rules, `mcts` finishes with lower mean Power than
+`greedy` (21.5 vs 24.5 now) and builds fewer cities, while staying level on
+wins. Rollouts are valued on final standing, not on Power, so the search has no
+reason to prefer a position that scores 40 and loses over one that scores 24
+and wins — greedy's evaluation is Power-shaped and cannot express that
+difference. That much has been stable even as the win rate moved around.
 
 Remaining levers, roughly in order of expected value:
 
@@ -168,9 +186,10 @@ Remaining levers, roughly in order of expected value:
 
 ## Open questions
 
-- **Guild card powers.** The largest gap. Until the Court has real abilities,
-  the value of Influence and Secure is understated, so bots almost certainly
-  under-invest in the Court relative to real Arcs.
+- **The rest of the Guild card abilities.** 13 of 31 are dispatched. The Unions
+  and Cartels need state the engine does not have; the 6 Vox cards need a
+  When Secured decision node. Until those land the Court is still under-valued,
+  though less so than before.
 - **Ambition timing.** No bot yet reasons about *when* to declare. The zero
   marker makes a declared lead card trivially surpassable, so declaring costs
   the initiative — a tradeoff none of the current evaluations model.
