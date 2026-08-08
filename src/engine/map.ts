@@ -11,7 +11,7 @@
  * DATA-GAP: which planet type sits where, how many building slots each planet
  * has, and which intra-cluster planet pairs share a thin border are not in the
  * rulebook. The layout below is *a* legal Reach, not *the* Reach — see
- * docs/DATA-GAPS.md §3. Replace `CLUSTERS` to use the printed map.
+ * docs/DATA-GAPS.md §2. Replace `CLUSTERS` to use the printed map.
  */
 import type { ResourceType, SystemDef } from './types';
 
@@ -31,7 +31,7 @@ interface PlanetDef {
  * weapon planets are deliberately scarce because Weapon Guild cards score no
  * ambition (p17), so weapon worlds are a means, not an end.
  */
-// DATA-GAP: invented layout, see docs/DATA-GAPS.md §3.
+// DATA-GAP: invented layout, see docs/DATA-GAPS.md §2.
 const CLUSTERS: PlanetDef[][] = [
   [
     { type: 'material', slots: 2 },

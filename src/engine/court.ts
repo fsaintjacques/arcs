@@ -10,7 +10,7 @@
  * ships mechanically vanilla: influencing, securing, raiding, Outrage discards
  * and ambition counts are all exact, but no card grants a special power. The
  * `whenSecured` hook exists so the real cards are a data edit — see
- * docs/DATA-GAPS.md §5.
+ * docs/DATA-GAPS.md §4.
  */
 import type { CourtCardDef, ResourceType } from './types';
 

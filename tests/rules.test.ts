@@ -646,10 +646,12 @@ describe('battle (p14-p16)', () => {
       interceptResolved: false,
     };
     f.s.phase = 'battleRoll';
-    // Force the intercept face by rolling with a stub RNG pinned to the last face.
-    resolveChanceMut(f.s, f.v, () => 0.99);
+    // Assault face index 2 is "1 hit + intercept"; 0.4 * 6 floors to 2.
+    resolveChanceMut(f.s, f.v, () => 0.4);
     expect(f.s.battle!.interceptResolved).toBe(true);
+    // One self-hit per fresh defending ship, and the face still deals its hit.
     expect(f.s.battle!.selfHits).toBe(3);
+    expect(f.s.battle!.hits).toBe(1);
   });
 });
 

@@ -1,13 +1,14 @@
 # Arcs — engine rules reference (base game)
 
-Source: **Arcs base rulebook, Leder Games, April 11 2024 edition** (24 pages).
-This document is the ground truth the engine in `src/engine/` is coded against.
-Page numbers in parentheses cite the rulebook.
+Sources: **Arcs base rulebook, Leder Games, April 11 2024 edition** (24 pages),
+plus the **official Arcs aid booklet** for the battle die faces. This document
+is the ground truth the engine in `src/engine/` is coded against. Page numbers
+in parentheses cite the rulebook unless marked "aid".
 
-Component data that the rulebook does **not** contain (exact map layout, setup
-cards, Guild/Vox card texts, assault/raid die faces, ambition marker reverse
-sides, player-board economy) is reconstructed — see
-[DATA-GAPS.md](DATA-GAPS.md) for every such value and how to correct it.
+Component data that neither document contains (exact map layout, setup cards,
+Guild/Vox card texts, ambition marker reverse sides, player-board economy) is
+reconstructed — see [DATA-GAPS.md](DATA-GAPS.md) for every such value and how to
+correct it.
 
 Scope: **base game only**. Leaders & Lore (p21) and the Blighted Reach campaign
 are out of scope; the engine has the hooks but ships no leader/lore data.
@@ -34,7 +35,17 @@ wins; ties go to **the tied player earliest in turn order** (p19).
   "7" cards are removed, leaving 20 cards numbered 2–6 (p3, p4 step C/D).
 - **Court deck**: 25 Guild + 6 Vox cards, shuffled together (p4 step H).
 - **Resource tokens (25)**: 5 each of Material, Fuel, Weapon, Relic, Psionic (p3).
-- **Battle dice (18)**: 6 each of Assault, Skirmish, Raid (p3).
+- **Battle dice (18)**: 6 each of Assault, Skirmish, Raid (p3). All six faces of
+  each die are printed in the aid booklet:
+
+  | die | faces |
+  |---|---|
+  | Skirmish | 3× 1 hit, 3× blank |
+  | Assault | 2 hits · 2 hits + self-hit · 1 hit + intercept · 1 hit + self-hit · 1 hit + self-hit · blank |
+  | Raid | 2 keys + intercept · 1 key + self-hit · 1 building hit + 1 key · 1 building hit + self-hit · 1 building hit + self-hit · intercept |
+
+  The intercept symbol is a ring that may enclose other symbols, so a face can
+  intercept *and* deal its enclosed hits or keys.
 - **Ambition markers (3)**: double-sided. Blue (starting) sides are
   **5/3**, **3/2**, **2/0** — first-place / second-place Power (p3).
 - **Zero marker**, **initiative marker**, **chapter marker**.

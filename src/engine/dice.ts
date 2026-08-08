@@ -1,12 +1,10 @@
 /**
- * Battle dice (rulebook p14).
+ * Battle dice (rulebook p14, faces from the official Arcs aid booklet p3).
  *
- * The rulebook gives the five symbols and the resolution order but not the
- * face distributions.
- *
- * DATA-GAP: the tables below are reconstructed as the simplest distributions
- * satisfying every published constraint simultaneously — see
- * docs/DATA-GAPS.md §1. Edit them here and nothing else changes.
+ * The aid booklet prints all six faces of each die, so these are exact. The
+ * intercept symbol is a ring that may enclose other symbols: an assault face
+ * shows a hit inside the ring (hit + intercept), a raid face shows two keys
+ * inside it (2 keys + intercept), and a bare ring is intercept alone.
  */
 import type { DieFace, DieType, RNG } from './types';
 
@@ -18,7 +16,7 @@ const face = (
   intercept = 0,
 ): DieFace => ({ hits, selfHits, buildingHits, keys, intercept });
 
-/** "A single hit on three faces, blank on the other three." Confirmed. */
+/** Three faces with a single hit, three blank. Never hurts the attacker. */
 export const SKIRMISH_FACES: DieFace[] = [
   face(1),
   face(1),
@@ -29,29 +27,32 @@ export const SKIRMISH_FACES: DieFace[] = [
 ];
 
 /**
- * Constraints: >=1 hit on 5 of 6 faces; 2 hits on 2 of 6; a self-hit on 3 of 6;
- * intercept on 1 of 6.
+ * 2 hits · 2 hits + self-hit · hit + intercept · hit + self-hit ·
+ * hit + self-hit · blank.
  */
 export const ASSAULT_FACES: DieFace[] = [
-  face(1),
-  face(1),
+  face(2),
+  face(2, 1),
+  face(1, 0, 0, 0, 1),
   face(1, 1),
-  face(2, 1),
-  face(2, 1),
-  face(0, 0, 0, 0, 1),
+  face(1, 1),
+  face(0),
 ];
 
 /**
- * Constraints: keys on 3 of 6 faces; a building hit on 3 of 6; self-hits on
- * more faces than assault; never damages defending ships; carries an intercept.
+ * 2 keys + intercept · key + self-hit · building hit + key ·
+ * building hit + self-hit · building hit + self-hit · intercept.
+ *
+ * Raid dice never damage defending ships, which is why the Raid Dice Limit
+ * (p14) gates them on the defender having buildings to lose.
  */
 export const RAID_FACES: DieFace[] = [
+  face(0, 0, 0, 2, 1),
   face(0, 1, 0, 1),
-  face(0, 1, 0, 1),
-  face(0, 1, 0, 2),
+  face(0, 0, 1, 1),
   face(0, 1, 1, 0),
-  face(0, 0, 1, 0),
-  face(0, 0, 1, 0, 1),
+  face(0, 1, 1, 0),
+  face(0, 0, 0, 0, 1),
 ];
 
 export const DIE_FACES: Record<DieType, DieFace[]> = {

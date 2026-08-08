@@ -5,7 +5,7 @@
  * generated to obey every stated setup rule — correct out-of-play cluster
  * count, one A/B/C system per player (two C systems at 2 players), A and B
  * always planets, nothing in an out-of-play cluster, no sharing — spread
- * symmetrically around the ring. See docs/DATA-GAPS.md §4.
+ * symmetrically around the ring. See docs/DATA-GAPS.md §3.
  */
 import { actionDeckFor } from './cards';
 import { AMBITION_MARKERS } from './ambitions';

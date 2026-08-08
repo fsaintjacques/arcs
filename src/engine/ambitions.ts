@@ -11,7 +11,7 @@ import { BONUS_FIRST_ONE_SLOT, BONUS_FIRST_BOTH_SLOTS, uncoveredBonuses } from '
  * (p3): 5/3, 3/2, 2/0.
  *
  * DATA-GAP: only the 2/0 marker's orange side (4/2) is sourced; the other two
- * reverses are extrapolated — see docs/DATA-GAPS.md §2.
+ * reverses are extrapolated — see docs/DATA-GAPS.md §1.
  */
 export const AMBITION_MARKERS: AmbitionMarkerDef[] = [
   { blue: { first: 5, second: 3 }, orange: { first: 9, second: 5 } },

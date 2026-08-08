@@ -156,30 +156,44 @@ describe('battle dice', () => {
     for (const faces of Object.values(DIE_FACES)) expect(faces).toHaveLength(6);
   });
 
-  it('skirmish is 3 hits and 3 blanks, and never hurts the attacker', () => {
-    expect(SKIRMISH_FACES.filter((f) => f.hits === 1)).toHaveLength(3);
-    expect(SKIRMISH_FACES.filter((f) => f.hits === 0)).toHaveLength(3);
-    for (const f of SKIRMISH_FACES) {
-      expect(f.selfHits).toBe(0);
-      expect(f.intercept).toBe(0);
-    }
+  // Faces are printed in full in the official aid booklet (p3), so these are
+  // exact tables rather than distributions inferred from quoted odds.
+  const tally = (faces: typeof SKIRMISH_FACES) =>
+    faces
+      .map((f) => `${f.hits}h${f.selfHits}s${f.buildingHits}b${f.keys}k${f.intercept}i`)
+      .sort();
+
+  it('skirmish is 3 single hits and 3 blanks, and never hurts the attacker', () => {
+    expect(tally(SKIRMISH_FACES)).toEqual(
+      ['1h0s0b0k0i', '1h0s0b0k0i', '1h0s0b0k0i', '0h0s0b0k0i', '0h0s0b0k0i', '0h0s0b0k0i'].sort(),
+    );
   });
 
-  it('assault matches its published probabilities', () => {
+  it('assault is 2 hits / 2 hits+self / hit+intercept / 2x hit+self / blank', () => {
+    expect(tally(ASSAULT_FACES)).toEqual(
+      ['2h0s0b0k0i', '2h1s0b0k0i', '1h0s0b0k1i', '1h1s0b0k0i', '1h1s0b0k0i', '0h0s0b0k0i'].sort(),
+    );
+  });
+
+  it('raid rolls keys and building hits and never hits defending ships', () => {
+    expect(tally(RAID_FACES)).toEqual(
+      ['0h0s0b2k1i', '0h1s0b1k0i', '0h0s1b1k0i', '0h1s1b0k0i', '0h1s1b0k0i', '0h0s0b0k1i'].sort(),
+    );
+    expect(RAID_FACES.every((f) => f.hits === 0)).toBe(true);
+  });
+
+  it('matches the odds quoted for each die', () => {
+    // Assault: >=1 hit on 5 of 6, 2 hits on 2 of 6, self-hit on 3, intercept on 1.
     expect(ASSAULT_FACES.filter((f) => f.hits >= 1)).toHaveLength(5);
     expect(ASSAULT_FACES.filter((f) => f.hits === 2)).toHaveLength(2);
     expect(ASSAULT_FACES.filter((f) => f.selfHits > 0)).toHaveLength(3);
     expect(ASSAULT_FACES.filter((f) => f.intercept > 0)).toHaveLength(1);
-    expect(ASSAULT_FACES.every((f) => f.keys === 0)).toBe(true);
-  });
-
-  it('raid rolls keys and building hits and never hits defending ships', () => {
+    // Raid: keys on half the faces, a building hit on half.
     expect(RAID_FACES.filter((f) => f.keys > 0)).toHaveLength(3);
     expect(RAID_FACES.filter((f) => f.buildingHits > 0)).toHaveLength(3);
-    expect(RAID_FACES.every((f) => f.hits === 0)).toBe(true);
-    // "carry the most risk of self-hits" — more self-hit faces than assault.
-    expect(RAID_FACES.filter((f) => f.selfHits > 0).length).toBeGreaterThan(
-      ASSAULT_FACES.filter((f) => f.selfHits > 0).length,
+    // Raid is the riskiest: it intercepts on two faces where assault does on one.
+    expect(RAID_FACES.filter((f) => f.intercept > 0).length).toBeGreaterThan(
+      ASSAULT_FACES.filter((f) => f.intercept > 0).length,
     );
   });
 });

@@ -71,32 +71,67 @@ The engine forbids re-entering a system the same catapult has already passed
 through. Revisiting can only undo progress, so no legal outcome is lost. This
 is one of five documented [engine rulings](RULES.md#11-engine-rulings).
 
-## The ladder so far
+## Wrong dice changed the ladder, not just the numbers
+
+The first version of the engine inferred the assault and raid die faces from
+odds quoted in reviews, because the rulebook prints only the symbols. The
+inferred tables satisfied every quoted statistic — 5-of-6 faces with a hit,
+2-of-6 with two hits, self-hits on half — and were still wrong about *which
+symbols share a face*. The official aid booklet prints all six faces of each
+die; the real ones are:
+
+| die | faces |
+|---|---|
+| Skirmish | 3× 1 hit, 3× blank (the inference was right) |
+| Assault | 2 hits · 2 hits + self · **1 hit + intercept** · 1 hit + self · 1 hit + self · blank |
+| Raid | **2 keys + intercept** · 1 key + self · **1 building hit + 1 key** · building + self · building + self · intercept |
+
+The assault die has *identical* expected hits and self-hits per die either way.
+What changed is correlation: the intercept face also deals a hit, two-hit faces
+no longer always cost you a ship, and the raid die trades a self-hit face for a
+second intercept face.
+
+That is enough to reorder the ladder. Against the inferred dice, `mcts` and
+`greedy` split 50/50 over 60 games. Against the real ones, `mcts` wins 65/35.
+`random+` vs `random` moved the other way, from 65/35 to an even split.
+
+The lesson is that aggregate statistics are not a substitute for the joint
+distribution: a bot that decides *how many of which die to collect* is reading
+exactly the structure that averages throw away.
+
+## The ladder
+
+All numbers below use the corrected dice.
 
 2 players:
 
 | matchup | games | win % | mean Power |
 |---|---|---|---|
-| `random+` vs `random` | 40 | 65.0 / 35.0 | 4.9 / 3.5 |
-| `greedy` vs `random+` | 40 | 100.0 / 0.0 | 43.0 / 2.4 |
-| `greedy` vs `mc` | 40 | 75.0 / 25.0 | 34.7 / 19.5 |
-| `greedy` vs `mcts` | 60 | 50.0 / 50.0 | 26.1 / 21.5 |
+| `random+` vs `random` | 40 | 52.5 / 47.5 | 3.9 / 4.1 |
+| `greedy` vs `random+` | 40 | 100.0 / 0.0 | 44.6 / 2.4 |
+| `greedy` vs `mc` | 40 | 77.5 / 22.5 | 32.9 / 16.2 |
+| `mcts` vs `greedy` | 60 | 65.0 / 35.0 | 23.2 / 24.3 |
 
 3 and 4 players:
 
 | field | games | win % |
 |---|---|---|
-| `greedy`, `mc`, `random` | 60 | 60.0 / 40.0 / 0.0 |
-| `greedy`, `greedy`, `mc`, `random` | 48 | 43.8 / 41.7 / 14.6 / 0.0 |
+| `greedy`, `mc`, `random` | 60 | 63.3 / 36.7 / 0.0 |
+| `greedy`, `greedy`, `mc`, `random` | 48 | 50.0 / 35.4 / 14.6 / 0.0 |
 
-The two greedy seats in the 4-player run land at 43.8% and 41.7% — a useful
-check that permuted seating is doing its job.
+### `random+` is not an improvement
+
+"Never end a turn with actions unspent, never burn a card to seize" sounds
+strictly better than uniform random, and over 40 games it is 52.5/47.5 — inside
+the ±15.5 interval. Spending every pip on a randomly chosen action is not worth
+much when the action is random. It remains useful as the rollout policy because
+it keeps rollouts moving, but it is not evidence that the heuristic is sound.
 
 ### Flat Monte-Carlo loses to one-step greedy
 
 `mc` samples worlds and plays each candidate action out several times, which is
 strictly more information than greedy's single settled lookahead — and it loses
-75/25 heads-up, and takes third of four behind two greedy seats.
+22.5/77.5 heads-up, and takes third of four behind two greedy seats.
 
 The reason is structural: `mc` has no tree, so it cannot see its own follow-up
 pips. An Arcs turn is a *sequence* of 1–4 dependent actions (build a starport,
@@ -104,25 +139,30 @@ then build a ship at it; move in, then battle), and evaluating the first action
 of that sequence against a random continuation prices the setup at close to
 nothing. More sampling does not beat a better-shaped one-step value here.
 
-### MCTS is not yet paying for its tree
+### MCTS wins by winning smaller
 
-The natural follow-up — same sampling, but with a tree over the turn's own
-decisions — comes out at **exactly 50/50 over 60 games** (interval ±12.7), with
-*lower* mean Power (21.5 vs 26.1) and noticeably fewer ambition tokens at game
-end (Tycoon 1.6 vs 3.0, Keeper 0.6 vs 1.5). An earlier 24-game batch read 58/42
-for `mcts`; that was inside the noise and did not survive the larger run.
+`mcts` takes `greedy` 65/35 over 60 games (±12.1) while finishing with *lower*
+mean Power, 23.2 against 24.3. It also builds less: 3.9 cities to greedy's 4.5,
+and fewer Tycoon and Keeper tokens.
 
-Reading the token counts, `mcts` is not playing a subtler economic game — it is
-building less of everything and drawing level anyway, which is what a search
-whose rollouts are too shallow to see a chapter score looks like. Candidates,
-roughly in order of expected value:
+That combination is the point rather than a puzzle. Rollouts are valued on final
+standing, not on Power, so the search has no reason to prefer a position that
+scores 40 and loses to one that scores 24 and wins. Greedy's evaluation is
+Power-shaped and cannot express the difference.
+
+It is worth stressing how much of this rests on the dice. The same matchup was
+an even 50/50 against the inferred die faces. Search reads the joint
+distribution of a dice pool — which faces co-occur, not just their averages —
+so it was the agent most damaged by getting that distribution wrong, and the one
+that gained most from fixing it.
+
+Remaining levers, roughly in order of expected value:
 
 1. **Iterations vs branching.** 300 iterations against a node with 100+ legal
    actions barely leaves the root. `narrow()` caps branching at 12, which helps,
    but the trim is uniform across kinds rather than informed.
 2. **Rollout depth.** 30 decisions rarely reaches a chapter break, so most
-   rollouts are valued by the same heuristic greedy uses — the search is paying
-   for sampling and getting greedy's opinion back.
+   rollouts are valued by the same heuristic greedy uses.
 3. **A greedy rollout policy** instead of `random+`, so the sampled
    continuations resemble the play the values are meant to describe.
 

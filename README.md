@@ -117,12 +117,16 @@ surface: banked Power, what the declared ambition boxes are currently worth,
 and the latent value of an economy and fleet not yet cashed in. All weights are
 parameters.
 
-Two details that turned out to matter more than the search itself:
+Three details that turned out to matter more than the search itself:
 
 - **Cascade settling.** A one-step eval scores `battle` *before* the dice exist,
   so it never fights: in a 2-player batch, battle was offered 163 times and
   taken 0. Playing the cascade out before scoring took that to 104 of 164 —
   worth more than any weight tuning so far.
+- **Exact die faces, not matching odds.** The first version inferred the assault
+  and raid faces from published probabilities. The inference matched every
+  quoted statistic and still had the wrong symbols sharing faces, which flipped
+  `mcts` vs `greedy` from an even split to 65/35.
 - **max^n backup, not minimax.** With 3–4 players, backing up a single scalar
   and assuming the opponents minimise your score models a coalition that is not
   in the game. Each node carries a value per seat and selection maximises the
@@ -165,32 +169,40 @@ Two players:
 
 | matchup | games | win % | mean Power |
 |---|---|---|---|
-| `random+` vs `random` | 40 | **65.0** / 35.0 | 4.9 / 3.5 |
-| `greedy` vs `random+` | 40 | **100.0** / 0.0 | 43.0 / 2.4 |
-| `greedy` vs `mc` | 40 | **75.0** / 25.0 | 34.7 / 19.5 |
-| `greedy` vs `mcts` | 60 | 50.0 / 50.0 | 26.1 / 21.5 |
+| `random+` vs `random` | 40 | 52.5 / 47.5 | 3.9 / 4.1 |
+| `greedy` vs `random+` | 40 | **100.0** / 0.0 | 44.6 / 2.4 |
+| `greedy` vs `mc` | 40 | **77.5** / 22.5 | 32.9 / 16.2 |
+| `mcts` vs `greedy` | 60 | **65.0** / 35.0 | 23.2 / 24.3 |
 
 Three and four players:
 
 | field | games | win % |
 |---|---|---|
-| `greedy`, `mc`, `random` | 60 | **60.0** / 40.0 / 0.0 |
-| `greedy`, `greedy`, `mc`, `random` | 48 | **43.8** / 41.7 / 14.6 / 0.0 |
+| `greedy`, `mc`, `random` | 60 | **63.3** / 36.7 / 0.0 |
+| `greedy`, `greedy`, `mc`, `random` | 48 | **50.0** / 35.4 / 14.6 / 0.0 |
 
-Two results are worth more than the ordering:
+Three results are worth more than the ordering:
 
-**Flat Monte-Carlo loses to one-step greedy**, 25/75, despite sampling strictly
-more information. `mc` has no tree, so it cannot see its own follow-up pips —
-and an Arcs turn is a *sequence* of 1–4 dependent actions (build a starport,
-then build a ship at it; move in, then battle). Valuing the first action of
-that sequence against a random continuation prices the setup at nothing.
+**Flat Monte-Carlo loses to one-step greedy**, 22.5/77.5, despite sampling
+strictly more information. `mc` has no tree, so it cannot see its own follow-up
+pips — and an Arcs turn is a *sequence* of 1–4 dependent actions (build a
+starport, then build a ship at it; move in, then battle). Valuing the first
+action of that sequence against a random continuation prices the setup at
+nothing.
 
-**MCTS does not yet beat greedy** — exactly 50/50 over 60 games, well inside
-the ±12.7 interval, while scoring less Power (21.5 vs 26.1) and holding fewer
-ambition tokens. At 300 iterations against a branching factor in the hundreds,
-the tree is not paying for its cost. That is a finding about the current
-configuration, not a verdict on search; see
-[docs/FINDINGS.md](docs/FINDINGS.md) for what looks worth trying next.
+**MCTS beats greedy 65/35** while scoring slightly *less* Power (23.2 vs 24.3).
+That is what optimising the right objective looks like: rollouts are valued on
+final standing, not on Power, so the search prefers winning by 1 over losing by
+5 with a bigger number on the track.
+
+**`random+` is not actually better than `random`** — 52.5/47.5 is inside the
+±15.5 interval. "Never waste a turn" sounds like an improvement and is not one
+at this level, which is a useful reminder that a plausible heuristic is a
+hypothesis, not a fact.
+
+All four numbers moved when the battle dice were corrected from the aid
+booklet; the `mcts` row moved most, from an even split to a clear win. See
+[docs/FINDINGS.md](docs/FINDINGS.md).
 
 ## Layout
 

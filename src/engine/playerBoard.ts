@@ -7,7 +7,7 @@
  * ambitions" Power bonuses. Cities returning to the board cover them again.
  *
  * DATA-GAP: the rulebook states the mechanism and the +2/+5 bonus values but
- * not the slot layout or the per-slot raid costs — see docs/DATA-GAPS.md §6.
+ * not the slot layout or the per-slot raid costs — see docs/DATA-GAPS.md §5.
  */
 import type { PlayerState, ResourceType } from './types';
 import { RESOURCE_TYPES } from './types';

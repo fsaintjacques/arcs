@@ -2,7 +2,7 @@
  * The map of the Reach: 6 clusters on a ring, each a gate plus 3 planets.
  *
  * Laid out from the engine's graph rather than a picture, so it stays correct
- * if the map data is replaced (see docs/DATA-GAPS.md §3).
+ * if the map data is replaced (see docs/DATA-GAPS.md §2).
  */
 import { clusterOf, isGate, type GameState, type ResourceType, type VariantDef } from '../../engine';
 import { PLAYER_COLORS, RESOURCE_ICON } from '../describe';
