@@ -30,7 +30,10 @@ if (args.help === 'true') {
                available: ${agentNames().join(', ')}
   --games      batch size (default 100)
   --seed       base seed; games are fully reproducible from it (default 1)
-  --setup      starting setup index (default 0; each game rotates on from here)
+  --setup      seeds the opening (default 0): which setup card is drawn, and
+               which position on it each player takes
+  --free-setup invent a fresh legal opening per deal instead of drawing one of
+               the 4 setup cards — thousands of boards, for large batches
   --opts       JSON passed to every agent, e.g. '{"iterations":800}'
   --no-rotate  keep seats fixed instead of rotating agents through them
   --unpaired   give every game its own deal instead of holding it fixed across
@@ -44,6 +47,7 @@ const names = (args.agents ?? 'greedy,greedy,greedy').split(',').map((n) => n.tr
 const games = Number(args.games ?? 100);
 const seed = Number(args.seed ?? 1);
 const setupIndex = Number(args.setup ?? 0);
+const setupMode = args['free-setup'] === 'true' ? ('draw' as const) : ('deck' as const);
 const agentOpts = args.opts ? (JSON.parse(args.opts) as Record<string, unknown>) : undefined;
 
 if (names.length < 2 || names.length > 4) {
@@ -59,6 +63,7 @@ if (args.verbose === 'true') {
     players,
     seed,
     setupIndex,
+    setupMode,
     onDecision: (state, player, action) => {
       const a = action as { t: string; card?: number; ambition?: string; mode?: string };
       if (!['lead', 'follow', 'declareAmbition', 'passInitiative', 'seize'].includes(a.t)) return;
@@ -91,6 +96,7 @@ const sim = simulate(agents, {
   games,
   seed,
   setupIndex,
+  setupMode,
   rotateSeats: args['no-rotate'] !== 'true',
   paired: args.unpaired !== 'true',
 });

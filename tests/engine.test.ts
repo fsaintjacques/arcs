@@ -91,9 +91,11 @@ describe('decision process', () => {
 
     for (const players of [2, 3, 4]) {
       for (let seed = 0; seed < 4; seed++) {
-        const v = makeVariant(players, seed);
+        // Free-draw openings, not the 4 setup cards: this test needs varied
+        // games to reach the rare ability paths, and the deck only has four.
+        const v = makeVariant(players, seed, 'draw');
         const rng = mulberry32(seed + 900);
-        const s = newGame(v, rng, seed);
+        const s = newGame(v, rng, seed, 'draw');
         for (const p of s.playerStates) p.guildCards = [...everyCard];
         // Both Cartels are now held by everyone, so those supplies are empty.
         for (const type of ['material', 'fuel'] as const) {
@@ -441,19 +443,37 @@ describe('paired measurement', () => {
     expect(paired.tied).toBe(paired.blocks);
   });
 
-  it('without pairing, an agent beats itself by chance', () => {
+  it('without pairing, an agent does not reliably tie a copy of itself', () => {
     // The bug this replaced: seed and setup advanced every game, so the n!
     // seatings never met the same deal and cancelled nothing. Identical agents
     // then post a spurious gap, which is what made 60-game reads unreliable.
-    const sim = simulate([makeAgent('greedy'), makeAgent('greedy')], {
-      players: 2,
-      games: 40,
-      seed: 31,
-      paired: false,
-    });
-    let a = 0;
-    for (const { result, seating } of sim.games) if (seating[result.winner] === 0) a++;
-    expect(a).not.toBe(sim.games.length / 2);
+    //
+    // Asserted over several replications rather than one: a single unpaired
+    // batch landing exactly on half is luck, and the claim is that unpaired
+    // *fails to guarantee* the tie, not that it never produces one.
+    const gaps: number[] = [];
+    for (let rep = 0; rep < 5; rep++) {
+      const sim = simulate([makeAgent('greedy'), makeAgent('greedy')], {
+        players: 2,
+        games: 40,
+        seed: 31 + rep * 7919,
+        paired: false,
+      });
+      let a = 0;
+      for (const { result, seating } of sim.games) if (seating[result.winner] === 0) a++;
+      gaps.push(a - sim.games.length / 2);
+    }
+    expect(gaps.some((g) => g !== 0), `unpaired gaps ${gaps}`).toBe(true);
+
+    // Paired, by contrast, is exactly zero every time.
+    for (let rep = 0; rep < 5; rep++) {
+      const sim = simulate([makeAgent('greedy'), makeAgent('greedy')], {
+        players: 2,
+        games: 40,
+        seed: 31 + rep * 7919,
+      });
+      expect(pairedStats(sim, ['a', 'b'], 0, 1)!.diff, `rep ${rep}`).toBe(0);
+    }
   });
 
   it('rounds the batch up to whole blocks', () => {

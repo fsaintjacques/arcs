@@ -38,8 +38,11 @@ the physical components rather than in the rulebook:
   against the type distribution (Material 4, Fuel 4, Weapon 4, Relic 3,
   Psionic 3) — on top of a structurally faithful graph (6 clusters, 1 gate + 3
   planets, ring adjacency, out-of-play clusters and path markers). What remains
-  reconstructed is which intra-cluster planet pair a thick border splits, and
-  setups are generated rather than drawn from the 12 printed cards.
+  reconstructed is which intra-cluster planet pair a thick border splits.
+  Openings come from a **reconstructed setup deck** — 4 cards per player count,
+  as the box has — chosen by scoring 20,000 legal layouts for balance rather
+  than invented by hand. Every stated setup rule is obeyed and asserted per
+  card; the printed 12 remain unknown.
 
 Every such value is isolated, marked `// DATA-GAP:` in code, and catalogued in
 [docs/DATA-GAPS.md](docs/DATA-GAPS.md) with the reconstruction used and how to
@@ -186,7 +189,8 @@ npm run sim -- --help
 | `--agents` | `greedy,greedy,greedy` | one per seat; 2–4 of them sets the player count |
 | `--games` | 100 | batch size |
 | `--seed` | 1 | games are fully reproducible from this |
-| `--setup` | 0 | starting setup; each game rotates on from here |
+| `--setup` | 0 | seeds the opening: which setup card, and who takes which position |
+| `--free-setup` | off | invent a fresh legal opening per deal instead of drawing a card |
 | `--opts` | — | JSON passed to every agent |
 | `--no-rotate` | off | keep seats fixed instead of permuting |
 | `--unpaired` | off | give every game its own deal (noisy and biased; for contrast only) |
@@ -207,27 +211,44 @@ it.
 
 ## Results
 
-All from the **paired** harness — every deal played from every seating, so no
-agent can draw a friendlier set of starting positions than another. Numbers this
-project published before that fix are not comparable; see below.
+All from the **paired** harness playing the **setup-card deck** — draw one of the
+four cards for your player count, take positions on it at random, every deal
+played from every seating. Numbers published before these fixes are not
+comparable; see below.
 
 Two players:
 
-| matchup | games | deals | win % | paired difference |
-|---|---|---|---|---|
-| `greedy` vs `random+` | 120 | 60 | **100.0** / 0.0 | +100.0 ±0.0 |
-| `greedy` vs `mc` | 120 | 60 | **65.8** / 34.2 | +31.7 ±15.1 |
-| `mcts` vs `greedy` | 120 | 60 | **65.0** / 35.0 | +30.0 ±17.0 |
-| `random+` vs `random` | 2000 | 1000 | **59.0** / 41.0 | +18.0 ±4.2 |
+| matchup | games | deals | win % | paired difference | separated |
+|---|---|---|---|---|---|
+| `greedy` vs `random+` | 120 | 60 | **100.0** / 0.0 | +100.0 ±0.0 | yes |
+| `mcts` vs `greedy` | 120 | 60 | **71.7** / 28.3 | +43.3 ±17.0 | yes |
+| `random+` vs `random` | 2000 | 1000 | **60.5** / 39.6 | +20.9 ±4.2 | yes |
+| `greedy` vs `mc` | 120 | 60 | 59.2 / 40.8 | +18.3 ±18.3 | **no** |
 
 Three players:
 
 | field | games | deals | win % |
 |---|---|---|---|
-| `greedy`, `mc`, `random` | 180 | 30 | **62.8** / 37.2 / 0.0 |
+| `greedy`, `mc`, `random` | 180 | 30 | **65.0** / 35.0 / 0.0 |
 
-**Every rung separates**, which has not been true before:
-`mcts` > `greedy` > `mc` > `random+` > `random`.
+`mcts` > `greedy` > `mc` > `random+` > `random`, with `greedy` vs `mc` the one
+rung not settled head-to-head — though `greedy` takes the 3-player field.
+
+**The opening is a variable.** Setups follow the game: shuffle the four setup
+cards for your player count, draw one, and take positions on it — with *which*
+position each player gets, and turn order, both randomised, since the card
+decides neither. The same matchup across three ways of choosing the opening,
+same agents throughout:
+
+| openings | `greedy` vs `mc` | separated |
+|---|---|---|
+| 6 fixed rotations (originally) | +31.7 ±15.1 | yes |
+| 4 setup cards (as played) | +18.3 ±18.3 | no |
+| ~3000 free draws (`--free-setup`) | +13.3 ±17.1 | no |
+
+Some of that original edge was an edge *on those six boards*. The 3-player field
+held its separation throughout, which is the recurring pattern here: the
+multiplayer result is the durable one.
 
 **The measurement was broken, and finding that out was worth more than any result
 it produced.** The batch runner advanced the seed *and* the setup index on every

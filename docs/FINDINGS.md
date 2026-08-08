@@ -6,9 +6,10 @@ methodology traps that cost real time.
 
 Everything here describes **this engine's Arcs**. All 31 Court cards are real
 data with every printed ability dispatched, and the map's planet types and
-building slots are transcribed from the printed board; the setup cards and a few
-component details are still reconstructed (see [DATA-GAPS.md](DATA-GAPS.md)), so
-treat the strategic conclusions as provisional.
+building slots are transcribed from the printed board. Opening positions are a
+random legal draw rather than the printed 12 setup cards, and a few component
+details are still reconstructed (see [DATA-GAPS.md](DATA-GAPS.md)), so treat the
+strategic conclusions as provisional.
 
 ## Methodology traps
 
@@ -215,38 +216,55 @@ exactly the structure that averages throw away.
 
 ## The ladder
 
-Every number below is from the **paired** harness. Earlier editions of this table
-are not comparable and should not be cited: they came off an instrument that
-could not tell an agent apart from a copy of itself.
+Every number below is from the **paired** harness, playing the setup-card deck —
+draw one of the four cards for your player count, take positions on it at
+random. Earlier editions of this table are not comparable and should not be
+cited.
 
 2 players:
 
 | matchup | games | deals | win % | paired difference | separated |
 |---|---|---|---|---|---|
 | `greedy` vs `random+` | 120 | 60 | **100.0** / 0.0 | +100.0 ±0.0 | yes |
-| `greedy` vs `mc` | 120 | 60 | **65.8** / 34.2 | +31.7 ±15.1 | yes |
-| `mcts` vs `greedy` | 120 | 60 | **65.0** / 35.0 | +30.0 ±17.0 | yes |
-| `random+` vs `random` | 2000 | 1000 | **59.0** / 41.0 | +18.0 ±4.2 | yes |
+| `mcts` vs `greedy` | 120 | 60 | **71.7** / 28.3 | +43.3 ±17.0 | yes |
+| `random+` vs `random` | 2000 | 1000 | **60.5** / 39.6 | +20.9 ±4.2 | yes |
+| `greedy` vs `mc` | 120 | 60 | 59.2 / 40.8 | +18.3 ±18.3 | **no** |
 
 3 players:
 
-| field | games | deals | win % |
-|---|---|---|---|
-| `greedy`, `mc`, `random` | 180 | 30 | **62.8** / 37.2 / 0.0 |
-
-**Every rung now separates**, which has never been true before:
+| field | games | deals | win % | paired (`greedy` vs `mc`) |
+|---|---|---|---|---|
+| `greedy`, `mc`, `random` | 180 | 30 | **65.0** / 35.0 / 0.0 | +30.0 ±12.3, separated |
 
     mcts  >  greedy  >  mc  >  random+  >  random
 
-Two of those orderings are new information rather than confirmation. `random+`
-beats `random`, after four readings that said otherwise. And `greedy` beats `mc`
-in *both* player counts, reversing the "flip" this file had attributed to the map
-correction.
+`greedy` vs `mc` is the one rung not settled head-to-head, though `greedy` takes
+the 3-player field comfortably.
 
-The intervals are still wide — ±15 to ±17 on the 120-game rows — because pairing
-removed a bias without shrinking the spread. Resolving anything finer than about
-15 points still needs many more games. The difference is that these numbers are
-now merely imprecise rather than wrong.
+### The opening is a variable, and holding it still flatters results
+
+The same matchup, the same agents, three different ways of choosing the opening:
+
+| openings | `greedy` vs `mc` | separated |
+|---|---|---|
+| 6 fixed rotations | +31.7 ±15.1 | yes |
+| 4 setup cards (as played) | +18.3 ±18.3 | no |
+| ~3000 free draws | +13.3 ±17.1 | no |
+
+Nothing about either agent changed between those rows. The original six
+rotations gave every player a home cluster with the same two planets of it, and
+whatever edge `greedy` had was substantially an edge **on those six boards**.
+Widening the pool of openings halves it and takes the interval across zero.
+
+The 3-player field kept its separation throughout (+30.0 ±12.3 on the deck), the
+same pattern as every other shake-up in this file: **the multiplayer result is
+the durable one**, probably because a third player's presence swamps whatever
+small edge a particular opening confers.
+
+This is why `SetupMode` has two settings rather than one. `deck` is the game as
+played and is the default. `draw` treats the opening as a nuisance variable, and
+is what to use when the question is "is this agent better" rather than "who wins
+Arcs".
 
 ### `mcts` beats `greedy`, and this one survived the harness fix
 
@@ -255,16 +273,19 @@ the newest and boldest one: that `mcts` had finally pulled clear of `greedy`. It
 was measured on the biased instrument, so it had to be re-run before it could be
 believed.
 
-It holds. 120 paired games over 60 deals:
+It holds through every change to how it is measured. 120 paired games over 60
+deals on the setup deck:
 
 | | win % | mean Power | paired difference |
 |---|---|---|---|
-| `mcts` | **65.0** | 23.5 | **+30.0 ±17.0** |
-| `greedy` | 35.0 | 22.3 | |
+| `mcts` | **71.7** | 25.6 | **+43.3 ±17.0** |
+| `greedy` | 28.3 | 22.0 | |
 
-25 deals to `mcts`, 7 to `greedy`, 28 split. The old number was 71.7; the honest
-one is 65.0 with an interval that excludes 50%. Same direction, slightly smaller,
-and now trustworthy.
+32 deals to `mcts`, 6 to `greedy`, 22 split. The reading has gone 71.7 (broken
+harness) → 65.0 (fixed harness, six rotations) → 69.2 (free draws) → 71.7 (setup
+deck), excluding 50% every time since the harness was fixed. It is the one
+result in this file that has survived a bias fix, a map transcription, a
+complete Court and three different schemes for choosing the opening.
 
 `mcts` also holds its lead on mean Power (23.5 vs 22.3), which had been the one
 stable difference running the *other* way for most of this project's history.
@@ -331,28 +352,28 @@ The lesson is not "we needed more games", though we did. It is that a null resul
 from an instrument you have not validated is not a null result. The instrument
 here could not tell an agent apart from a copy of itself.
 
-### Flat Monte-Carlo loses to one-step greedy, and the "flip" was the harness
+### Flat Monte-Carlo: second in the field, unresolved head-to-head
 
 `mc` samples worlds and plays each candidate action out several times, which is
-strictly more information than greedy's single settled lookahead. It loses
-anyway, and now it does so with an interval that excludes zero:
+strictly more information than greedy's single settled lookahead. It has never
+finished ahead of `greedy` in a multiplayer field, and heads-up it is
+**unresolved** on every opening scheme wider than the original six:
 
-| | games | win % | paired difference |
-|---|---|---|---|
-| `greedy` vs `mc`, 2 players | 120 | **65.8** / 34.2 | +31.7 ±15.1 |
-| `greedy` vs `mc`, 3 players (with `random`) | 180 | **62.8** / 37.2 / 0.0 | +25.6 ±14.2 |
+| | games | win % | paired difference | separated |
+|---|---|---|---|---|
+| `greedy` vs `mc`, 2 players | 120 | 59.2 / 40.8 | +18.3 ±18.3 | no |
+| `greedy`, `mc`, `random`, 3 players | 180 | 65.0 / 35.0 / 0.0 | +30.0 ±12.3 | yes |
 
-The structural reason holds: `mc` has no tree, so it cannot see its own follow-up
-pips. An Arcs turn is a *sequence* of 1–4 dependent actions (build a starport,
-then build a ship at it; move in, then battle), and evaluating the first action of
-that sequence against a random continuation prices the setup at close to nothing.
+The structural reason `mc` should be weaker still holds: it has no tree, so it
+cannot see its own follow-up pips. An Arcs turn is a *sequence* of 1–4 dependent
+actions (build a starport, then build a ship at it; move in, then battle), and
+evaluating the first action of that sequence against a random continuation
+prices the setup at close to nothing.
 
-This section previously recorded the heads-up result "flipping" to 45.0/55.0 and
-then 52.5/47.5, and attributed it to the map correction. **That was the seat/setup
-confound, not the map.** On the fixed harness the direction is the original one
-and the size is roughly the original size. The multiplayer field, which never
-flipped, was the more durable signal throughout — which is a reason to trust the
-measurement that stayed still over the one that moved.
+The head-to-head number has now moved three times for reasons that had nothing
+to do with either agent — the seat/setup confound, then free-draw openings, then
+the setup deck. The field result held still through all of it. Stated as a rule
+of thumb: **in this game the field result is the durable one.**
 
 ### Greedy builds more cities; the Power gap did not survive
 

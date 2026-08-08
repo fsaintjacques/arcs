@@ -15,6 +15,10 @@ import {
   standings,
   type Action,
   type GameState,
+  drawSetup,
+  SETUP_DECK,
+  isGate,
+  clusterOf,
 } from '../src/engine';
 import { actions, actor, ADMIN, AGGRESSION, apply, battleState, cardId, CONSTRUCTION, find, MOBILIZATION, setHand, settle, startGame } from './helpers';
 
@@ -54,6 +58,98 @@ describe('setup (p4-p5)', () => {
           expect(sys.fresh.reduce((a, b) => a + b, 0), `system ${i}`).toBe(0);
           expect(sys.buildings).toHaveLength(0);
         }
+      }
+    }
+  });
+
+  it('every setup card in the deck is legal', () => {
+    for (const players of [2, 3, 4]) {
+      const v = makeVariant(players, 0);
+      expect(SETUP_DECK[players], `${players}p deck size`).toHaveLength(4);
+      for (const card of SETUP_DECK[players]) {
+        const dead = new Set(card.outOfPlay);
+        const where = `${players}p "${card.name}"`;
+        expect(card.outOfPlay, where).toHaveLength(players === 4 ? 1 : 2);
+        expect(card.starts, where).toHaveLength(players);
+
+        const all: number[] = [];
+        for (const st of card.starts) {
+          all.push(st.a, st.b, ...st.c);
+          // A and B take a city and a starport and yield a resource at step O.
+          expect(v.systems[st.a].planetType, where).not.toBeNull();
+          expect(v.systems[st.b].planetType, where).not.toBeNull();
+          expect(st.c, where).toHaveLength(players === 2 ? 2 : 1);
+          for (const g of st.c) expect(isGate(g), where).toBe(true);
+          for (const x of [st.a, st.b, ...st.c]) {
+            expect(dead.has(clusterOf(x)), `${where}: system ${x} in a dead cluster`).toBe(false);
+          }
+        }
+        expect(new Set(all).size, `${where}: shared start`).toBe(all.length);
+      }
+    }
+  });
+
+  it('assigns players to card positions at random, not by seat', () => {
+    // The card numbers its positions; nothing says seat 0 takes position 1. A
+    // human sitting in seat 0 should not always start in the same corner.
+    for (const players of [2, 3, 4]) {
+      const taken = new Array(players).fill(0);
+      for (let seed = 0; seed < 600; seed++) {
+        const setup = drawSetup(players, seed);
+        const card = SETUP_DECK[players].find((c) => c.name === setup.name)!;
+        const pos = card.starts.findIndex(
+          (st) => st.a === setup.starts[0].a && st.b === setup.starts[0].b,
+        );
+        expect(pos, `${players}p seed ${seed}`).toBeGreaterThanOrEqual(0);
+        taken[pos]++;
+      }
+      // Every position reached, none dominating: uniform would be 600/players.
+      for (const n of taken) expect(n, `${players}p spread ${taken}`).toBeGreaterThan(600 / players / 2);
+    }
+  });
+
+  it('randomises the turn order too', () => {
+    // Turn order runs clockwise from the initiative marker, and initiative is
+    // drawn at setup — so seat 0 must not always lead.
+    for (const players of [2, 3, 4]) {
+      const v = makeVariant(players, 0);
+      const holders = new Array(players).fill(0);
+      for (let seed = 0; seed < 600; seed++) {
+        holders[newGame(v, mulberry32(seed * 7919 + 13), 0).initiative]++;
+      }
+      for (const n of holders) expect(n, `${players}p initiative ${holders}`).toBeGreaterThan(600 / players / 2);
+    }
+  });
+
+  it('free-draw mode stays legal for any seed', () => {
+    // `draw` is the measurement mode: thousands of openings instead of four.
+    for (const players of [2, 3, 4]) {
+      for (let seed = 0; seed < 300; seed++) {
+        const setup = drawSetup(players, seed, 'draw');
+        const v = makeVariant(players, seed, 'draw');
+        const dead = new Set(setup.outOfPlay);
+        const where = `${players}p seed ${seed}`;
+        expect(setup.outOfPlay, where).toHaveLength(players === 4 ? 1 : 2);
+        const all: number[] = [];
+        for (const st of setup.starts) {
+          all.push(st.a, st.b, ...st.c);
+          expect(v.systems[st.a].planetType, where).not.toBeNull();
+          expect(v.systems[st.b].planetType, where).not.toBeNull();
+          for (const x of [st.a, st.b, ...st.c]) {
+            expect(dead.has(clusterOf(x)), where).toBe(false);
+          }
+        }
+        expect(new Set(all).size, `${where}: shared start`).toBe(all.length);
+      }
+    }
+  });
+
+  it('is reproducible from its seed', () => {
+    // `makeVariant` and `newGame` derive the setup independently and must agree.
+    for (const players of [2, 3, 4]) {
+      for (let seed = 0; seed < 100; seed++) {
+        expect(drawSetup(players, seed)).toEqual(drawSetup(players, seed));
+        expect(drawSetup(players, seed, 'draw')).toEqual(drawSetup(players, seed, 'draw'));
       }
     }
   });

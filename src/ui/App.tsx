@@ -191,12 +191,11 @@ function Controls({ game, mode }: { game: ReturnType<typeof useGame>; mode: 'pla
           onChange={(e) => reset({ seed: Number(e.target.value) })}
         />
       </label>
-      <label>
-        Setup
+      <label title="Seeds the opening position — any number draws a different legal map">
+        Map
         <input
           type="number"
           min={0}
-          max={5}
           value={config.setupIndex}
           onChange={(e) => reset({ setupIndex: Number(e.target.value) })}
         />

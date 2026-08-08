@@ -13,7 +13,7 @@ space, and the agent API are all independent of these values.
 |---|---|---|---|
 | 1 | Ambition marker reverse sides | `src/engine/ambitions.ts` | medium — one of three confirmed |
 | 2 | Intra-cluster planet adjacency | `src/engine/map.ts` | medium — types and slots now read off the board; which pair a thick border splits is not |
-| 3 | Setup cards | `src/engine/setup.ts` | low — generated symmetrically, not the printed 12 |
+| 3 | Setup cards | `src/engine/setup.ts` | low — a balance-scored deck of 4 per count, not the printed 12 |
 | 4 | Player board economy | `src/engine/playerBoard.ts` | low |
 
 **Closed:** battle die faces (official aid booklet p3 prints all six faces of
@@ -151,19 +151,58 @@ as [engine rulings](RULES.md#11-engine-rulings).
 
 ## 3. Setup cards
 
-The box has 12 setup cards (4 each for 2, 3 and 4 players). Their contents are
-not in the rulebook. `setup.ts` instead **generates** setups that obey every
-setup rule the rulebook does state:
+The box has 12 setup cards — 4 each for 2, 3 and 4 players — and their contents
+are not in the rulebook. `SETUP_DECK` in `setup.ts` holds a reconstructed deck of
+the same shape, and a game plays step I as written: shuffle the cards for your
+player count, draw one, take positions on it.
 
-- the correct number of out-of-play clusters (2 for 2–3 players, 1 for 4),
-- one A, one B and one C system per player (two C systems at 2 players),
-- starting systems spread symmetrically around the ring, never in an
-  out-of-play cluster, and never shared between players,
-- A and B are always planets (they receive a city and a starport).
+**How the four were chosen.** Not by hand and not uniformly. `tools/pick-setups.ts`
+scores 20,000 legal openings for balance — equal building capacity across
+players, two distinct resource types each, and no two players crowded into
+neighbouring clusters — and keeps the best four per count, requiring them to
+differ in which clusters they take out of play. The 2-player cards score
+perfectly balanced; 3 and 4 players cannot, because 4 or 5 live clusters will
+not seat that many players an equal distance apart. That is the map's geometry,
+not a defect in the search.
 
-`--setup <n>` / `setupIndex` selects among the generated layouts, so batches
-still vary. To use the printed cards instead, replace `generateSetup()` with a
-literal table of the 12 setups.
+Every stated setup rule holds, asserted per card in `rules.test.ts`: the right
+number of out-of-play clusters, each taking its gate and the 3 planets touching
+it (p4 step J); one A, one B and one C per player, two Cs at 2 players; A and B
+always planets, since they take a city and a starport and their printed resource
+is gained at step O; nothing in a dead cluster; no system shared.
+
+### Two things the card does not decide
+
+- **Which player takes which position.** The card labels its positions 1A/1B/1C,
+  2A/2B/2C and so on, and nothing says seat 0 is position 1. `drawSetup` assigns
+  players to positions at random, so a human in seat 0 does not always open in
+  the same corner of the same card.
+- **Turn order**, which comes from the initiative marker and is drawn at setup.
+
+Both are uniform over 2000 draws at every player count.
+
+### The measurement mode
+
+`SetupMode` is `deck` by default — the game as played, four boards per count.
+`draw` invents a fresh legal opening per seed instead, reaching about 3000
+boards per count, and is exposed as `--free-setup`.
+
+The distinction earns its keep, because **few openings flatter results**. On the
+six fixed rotations this project used originally, `greedy` beat `mc` by
++31.7 ±15.1. On freely drawn openings the same matchup is +13.3 ±17.1, and on
+the four setup cards +18.3 ±18.3 — neither separated. Nothing about either agent
+changed. Use `deck` to ask "who wins Arcs", and `draw` when the opening should
+be a nuisance variable rather than part of the game.
+
+### What one printed card tells us
+
+The rulebook's component photo (p3) shows *2 Players – Frontiers* legibly at
+400dpi, and it corrects an assumption an earlier generator made: `1A` and `1B`
+sit in **different clusters**, and the two `1C`s are scattered. Real setups
+spread a player across the map rather than giving them a home cluster, and the
+reconstruction follows that.
+
+To use the printed cards, replace `SETUP_DECK` with the real 12.
 
 ## 4. Player board economy
 
