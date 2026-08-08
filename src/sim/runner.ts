@@ -8,6 +8,7 @@ import {
   resolveChanceMut,
   standings,
   type GameState,
+  type SetupMode,
   type VariantDef,
 } from '../engine';
 import type { Agent } from '../agents';
@@ -32,6 +33,11 @@ export interface PlayOptions {
   players: number;
   seed: number;
   setupIndex?: number;
+  /**
+   * `deck` (default) draws one of the four setup cards for this player count;
+   * `draw` invents a fresh legal opening per seed. See `SetupMode`.
+   */
+  setupMode?: SetupMode;
   /** Hard stop, to turn an engine livelock into a test failure. */
   maxDecisions?: number;
   onDecision?: (state: GameState, player: number, action: unknown) => void;
@@ -40,8 +46,9 @@ export interface PlayOptions {
 /** Play one seeded game to completion. Agents are seated in array order. */
 export function playGame(agents: Agent[], opts: PlayOptions): GameResult {
   const rng = mulberry32(opts.seed);
-  const variant = makeVariant(opts.players, opts.setupIndex ?? 0);
-  const s = newGame(variant, rng, opts.setupIndex ?? 0);
+  const mode = opts.setupMode ?? 'deck';
+  const variant = makeVariant(opts.players, opts.setupIndex ?? 0, mode);
+  const s = newGame(variant, rng, opts.setupIndex ?? 0, mode);
   const limit = opts.maxDecisions ?? 200_000;
 
   const ctxs = agents.map((_, player) => ({

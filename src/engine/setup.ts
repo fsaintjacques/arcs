@@ -30,6 +30,88 @@ export interface SetupCard {
 }
 
 /**
+ * The setup-card deck: 4 cards per player count, as the box has (p4 step I).
+ *
+ * DATA-GAP: the printed 12 are not in the rulebook. These are reconstructed —
+ * a large pool of legal draws scored for balance (equal building capacity per
+ * player, two distinct resources each, no two players crowded into neighbouring
+ * clusters) with the best four kept per count, chosen to differ in which
+ * clusters they take out of play. `tools/pick-setups.ts` regenerates them.
+ *
+ * The 2-player cards come out perfectly balanced on that score; 3 and 4 players
+ * cannot, because 4 or 5 live clusters will not seat that many players an equal
+ * distance apart. That is a property of the map, not of the search.
+ *
+ * Positions are numbered as on a printed card — `starts[0]` is 1A/1B/1C — and
+ * `drawSetup` assigns players to them at random, so a seat does not imply a
+ * position.
+ */
+export const SETUP_DECK: Record<number, SetupCard[]> = {
+  2: [
+    { name: 'Frontiers', outOfPlay: [0, 3], starts: [{ a: 21, b: 17, c: [20, 16] }, { a: 10, b: 9, c: [8, 4] }] },
+    { name: 'Mirrors', outOfPlay: [4, 5], starts: [{ a: 13, b: 9, c: [12, 8] }, { a: 1, b: 2, c: [0, 4] }] },
+    { name: 'Crossroads', outOfPlay: [0, 2], starts: [{ a: 7, b: 6, c: [4, 20] }, { a: 17, b: 14, c: [16, 12] }] },
+    { name: 'Verge', outOfPlay: [1, 4], starts: [{ a: 22, b: 23, c: [20, 0] }, { a: 10, b: 11, c: [8, 12] }] },
+  ],
+  3: [
+    { name: 'Triangulum', outOfPlay: [1, 5], starts: [{ a: 10, b: 11, c: [8] }, { a: 18, b: 14, c: [16] }, { a: 1, b: 2, c: [0] }] },
+    { name: 'Wheelhouse', outOfPlay: [3, 5], starts: [{ a: 3, b: 5, c: [0] }, { a: 19, b: 18, c: [16] }, { a: 9, b: 11, c: [8] }] },
+    { name: 'Divide', outOfPlay: [0, 4], starts: [{ a: 13, b: 15, c: [12] }, { a: 7, b: 6, c: [4] }, { a: 22, b: 21, c: [20] }] },
+    { name: 'Reaches', outOfPlay: [2, 4], starts: [{ a: 23, b: 22, c: [20] }, { a: 5, b: 7, c: [4] }, { a: 15, b: 14, c: [12] }] },
+  ],
+  4: [
+    { name: 'Quadrants', outOfPlay: [2], starts: [{ a: 19, b: 21, c: [16] }, { a: 22, b: 17, c: [20] }, { a: 13, b: 15, c: [12] }, { a: 5, b: 7, c: [4] }] },
+    { name: 'Bastions', outOfPlay: [5], starts: [{ a: 3, b: 5, c: [0] }, { a: 15, b: 13, c: [12] }, { a: 9, b: 11, c: [8] }, { a: 18, b: 19, c: [16] }] },
+    { name: 'Sprawl', outOfPlay: [4], starts: [{ a: 1, b: 23, c: [0] }, { a: 22, b: 21, c: [20] }, { a: 14, b: 15, c: [12] }, { a: 11, b: 9, c: [8] }] },
+    { name: 'Crown', outOfPlay: [1], starts: [{ a: 19, b: 21, c: [16] }, { a: 14, b: 15, c: [12] }, { a: 3, b: 23, c: [0] }, { a: 11, b: 9, c: [8] }] },
+  ],
+};
+
+/**
+ * How a game's opening is chosen.
+ *
+ * `deck` is the game as played: shuffle the cards for your player count, draw
+ * one, and take positions on it (p4 step I). Four boards per count.
+ *
+ * `draw` invents a fresh legal opening per seed instead — thousands of boards.
+ * It is not how the game is played, but few openings *flatter* results: on the
+ * six fixed rotations this project used before, `greedy` beat `mc` by
+ * +31.7 ±15.1, and on freely drawn openings the same matchup is +13.3 ±17.1 and
+ * no longer separated. Use `draw` for large measurement batches where the
+ * opening should be a nuisance variable rather than part of the game.
+ */
+export type SetupMode = 'deck' | 'draw';
+
+/**
+ * Choose the opening. `seed` picks the card and the seating on it, so the same
+ * seed always reproduces the same board — which is what lets `makeVariant` and
+ * `newGame` derive it independently and still agree.
+ *
+ * **Which player gets which position on the card is randomised.** Both are
+ * things the rulebook leaves outside the card: the card labels its positions
+ * 1A/1B/1C, 2A/2B/2C and so on, and nothing says seat 0 takes position 1. Turn
+ * order is randomised separately, by the initiative marker.
+ */
+export function drawSetup(players: number, seed: number, mode: SetupMode = 'deck'): SetupCard {
+  if (mode === 'draw') return generateSetup(players, seed);
+
+  const rng = mulberry32((Math.abs(Math.trunc(seed)) * 2246822519 + 0xc0de) >>> 0);
+  const deck = SETUP_DECK[players];
+  const card = pick(deck, rng);
+
+  // Seat p takes the card position `order[p]`.
+  const order = shuffle(
+    Array.from({ length: players }, (_, i) => i),
+    rng,
+  );
+  return {
+    name: card.name,
+    outOfPlay: card.outOfPlay,
+    starts: order.map((i) => card.starts[i]),
+  };
+}
+
+/**
  * Draw a random legal setup for `players`, determined entirely by `seed`.
  *
  * `seed` was once an index into six fixed rotations, which meant a thousand-deal
@@ -111,12 +193,13 @@ export function generateSetup(players: number, seed: number): SetupCard {
 }
 
 /**
- * Build a variant. `setupIndex` seeds the setup draw — see `generateSetup`.
- * The same value always yields the same board, which is what lets `newGame`
- * derive an identical setup without the two having to share state.
+ * Build a variant. `setupIndex` seeds the opening — see `drawSetup`. The same
+ * value always yields the same board, which is what lets `newGame` derive an
+ * identical setup without the two having to share state; pass the same `mode`
+ * to both or they will disagree about which clusters are out of play.
  */
-export function makeVariant(players: number, setupIndex = 0): VariantDef {
-  const setup = generateSetup(players, setupIndex);
+export function makeVariant(players: number, setupIndex = 0, mode: SetupMode = 'deck'): VariantDef {
+  const setup = drawSetup(players, setupIndex, mode);
   return {
     id: `arcs-${players}p-${setupIndex}`,
     name: `Arcs (${players} players, ${setup.name})`,
@@ -132,8 +215,8 @@ export function makeVariant(players: number, setupIndex = 0): VariantDef {
   };
 }
 
-export function setupCardFor(v: VariantDef, setupIndex: number): SetupCard {
-  return generateSetup(v.players, setupIndex);
+export function setupCardFor(v: VariantDef, setupIndex: number, mode: SetupMode = 'deck'): SetupCard {
+  return drawSetup(v.players, setupIndex, mode);
 }
 
 function newSystemState(players: number, outOfPlay: boolean): SystemState {
@@ -149,8 +232,13 @@ function newSystemState(players: number, outOfPlay: boolean): SystemState {
  * Deal the opening position. The chapter's hands are dealt by the `deal`
  * chance node, so `newGame` leaves the game there.
  */
-export function newGame(v: VariantDef, rng: RNG, setupIndex = 0): GameState {
-  const setup = generateSetup(v.players, setupIndex);
+export function newGame(
+  v: VariantDef,
+  rng: RNG,
+  setupIndex = 0,
+  mode: SetupMode = 'deck',
+): GameState {
+  const setup = drawSetup(v.players, setupIndex, mode);
   const dead = new Set(setup.outOfPlay);
 
   const systems = v.systems.map((s) => newSystemState(v.players, dead.has(s.cluster)));
