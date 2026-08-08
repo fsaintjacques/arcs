@@ -9,7 +9,7 @@
 import { AMBITIONS, actionCard, ambitionCount, cardName, POWER_THRESHOLD } from '../engine';
 import { agentNames, makeAgent } from '../agents';
 import { playGame, simulate } from './runner';
-import { computeStats } from './stats';
+import { computeStats, pairedStats } from './stats';
 
 function parseArgs(argv: string[]): Record<string, string> {
   const args: Record<string, string> = {};
@@ -33,6 +33,8 @@ if (args.help === 'true') {
   --setup      starting setup index (default 0; each game rotates on from here)
   --opts       JSON passed to every agent, e.g. '{"iterations":800}'
   --no-rotate  keep seats fixed instead of rotating agents through them
+  --unpaired   give every game its own deal instead of holding it fixed across
+               a block of seatings (much noisier; use only to show the contrast)
   --verbose    play a single game and print a turn log
 `);
   process.exit(0);
@@ -90,13 +92,20 @@ const sim = simulate(agents, {
   seed,
   setupIndex,
   rotateSeats: args['no-rotate'] !== 'true',
+  paired: args.unpaired !== 'true',
 });
 const dt = performance.now() - t0;
-const st = computeStats(sim, names, dt / games);
+const played = sim.games.length;
+const st = computeStats(sim, names, dt / played);
 
 console.log(
-  `\n=== ${players} players — ${games} games, seed ${seed} (${(dt / 1000).toFixed(1)}s, ${(dt / games).toFixed(0)}ms/game)`,
+  `\n=== ${players} players — ${played} games, seed ${seed} (${(dt / 1000).toFixed(1)}s, ${(dt / played).toFixed(0)}ms/game)`,
 );
+if (sim.paired) {
+  console.log(
+    `paired: ${played / sim.blockSize} deals × ${sim.blockSize} seatings — every agent plays each deal from every seat`,
+  );
+}
 console.log(
   `chapters ${st.meanChapters.toFixed(2)}   rounds ${st.meanRounds.toFixed(1)}   battles ${st.meanBattles.toFixed(1)}   ambitions declared ${st.meanDeclared.toFixed(1)}`,
 );
@@ -114,6 +123,23 @@ for (const a of st.agents) {
       a.meanCities.toFixed(1).padStart(7) +
       a.meanShips.toFixed(1).padStart(7) +
       a.meanGuildCards.toFixed(1).padStart(7),
+  );
+}
+
+const pair = pairedStats(sim, names, 0, 1);
+if (pair) {
+  console.log(`\npaired head-to-head: ${pair.a} vs ${pair.b}`);
+  const sign = pair.diff >= 0 ? '+' : '';
+  console.log(
+    `  ${sign}${pair.diff.toFixed(1)}±${pair.ci.toFixed(1)} pts of win share to ${pair.a}, over ${pair.blocks} deals`,
+  );
+  console.log(
+    `  deals won by ${pair.a}: ${pair.aBetter}   by ${pair.b}: ${pair.bBetter}   split: ${pair.tied}`,
+  );
+  console.log(
+    pair.separated
+      ? `  the interval excludes zero — a real difference at this sample size`
+      : `  the interval covers zero — NOT separated at this sample size`,
   );
 }
 

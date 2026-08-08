@@ -1,7 +1,7 @@
 /** Run bot-vs-bot batches in a worker and show the ladder. */
 import { useEffect, useRef, useState } from 'react';
 import { agentNames } from '../../agents';
-import type { BatchStats } from '../../sim/stats';
+import type { BatchStats, PairedComparison } from '../../sim/stats';
 import type { SimMessage, SimRequest } from '../simWorker';
 import { AMBITIONS } from '../../engine';
 import { AMBITION_LABEL } from '../describe';
@@ -12,6 +12,7 @@ export function SimPanel() {
   const [seed, setSeed] = useState(1);
   const [progress, setProgress] = useState<{ done: number; total: number } | null>(null);
   const [stats, setStats] = useState<BatchStats | null>(null);
+  const [paired, setPaired] = useState<PairedComparison | null>(null);
   const [error, setError] = useState<string | null>(null);
   const worker = useRef<Worker | null>(null);
 
@@ -20,6 +21,7 @@ export function SimPanel() {
   const run = () => {
     worker.current?.terminate();
     setStats(null);
+    setPaired(null);
     setError(null);
     setProgress({ done: 0, total: games });
 
@@ -29,6 +31,7 @@ export function SimPanel() {
       if (e.data.kind === 'progress') setProgress({ done: e.data.done, total: e.data.total });
       else if (e.data.kind === 'done') {
         setStats(e.data.stats);
+        setPaired(e.data.paired);
         setProgress(null);
       } else {
         setError(e.data.message);
@@ -105,10 +108,34 @@ export function SimPanel() {
         )}
         {error && <p className="warn">{error}</p>}
         <p className="hint">
-          Seats are permuted across games, so identical agents score identically — any gap is
-          strength, not seat luck.
+          Each deal is played from every seating, so identical agents score identically and the
+          same cards reach both — any gap is strength, not seat luck or the shuffle.
         </p>
       </section>
+
+      {paired && (
+        <section className="panel">
+          <h2>
+            Head-to-head — {paired.a} vs {paired.b}
+          </h2>
+          <p>
+            <strong>
+              {paired.diff >= 0 ? '+' : ''}
+              {paired.diff.toFixed(1)} ±{paired.ci.toFixed(1)}
+            </strong>{' '}
+            points of win share to {paired.a}, over {paired.blocks} paired deals.
+          </p>
+          <p className={paired.separated ? 'hint' : 'warn'}>
+            {paired.separated
+              ? 'The interval excludes zero — a real difference at this sample size.'
+              : 'The interval covers zero — these agents are NOT separated at this sample size.'}
+          </p>
+          <p className="dim">
+            Deals won by {paired.a}: {paired.aBetter} · by {paired.b}: {paired.bBetter} · split:{' '}
+            {paired.tied}
+          </p>
+        </section>
+      )}
 
       {stats && (
         <>

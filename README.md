@@ -87,9 +87,20 @@ const world = determinize(obs, variant, rng);  // a consistent full state to sea
 ```
 
 `observe` blanks rival hands, every deck, and face-down plays that are not the
-observer's own, while keeping hand *sizes*. `determinize` deals the unseen
-cards back at random consistently with everything the observer has seen. The
-simulator hands agents an `Observation`, so a bot cannot cheat by construction.
+observer's own, while keeping hand *sizes*. `determinize` deals the unseen cards
+back at random consistently with everything the observer has seen. The simulator
+hands agents an `Observation`, so a bot cannot cheat by construction.
+
+"Consistently" is load-bearing and was once wrong: cards played face up in
+earlier rounds of a chapter were forgotten, so 65% of sampled worlds contained a
+card the observer had personally watched being played. `GameState.revealed` is
+the public memory that fixes it, and a test now asserts no sampled world contains
+a discarded card.
+
+Weighting the deal by what the follow history implies is implemented
+(`src/engine/belief.ts`) and **off**, because it measured as no better than
+uniform — Arcs has no follow-suit obligation, so declining to Surpass is a choice
+rather than a confession. `tools/belief-eval.ts` is the harness that says so.
 
 ## Writing an agent
 
@@ -127,9 +138,11 @@ Three details that turned out to matter more than the search itself:
   taken 0. Playing the cascade out before scoring took that to 104 of 164 —
   worth more than any weight tuning so far.
 - **Exact die faces, not matching odds.** The first version inferred the assault
-  and raid faces from published probabilities. The inference matched every
-  quoted statistic and still had the wrong symbols sharing faces, which flipped
-  `mcts` vs `greedy` from an even split to 65/35.
+  and raid faces from published probabilities. The inference matched every quoted
+  statistic and still had the wrong symbols sharing faces — the joint
+  distribution was wrong where every marginal was right. (It was credited with
+  moving the ladder too, but that was measured on the harness described under
+  Results, so the size of the effect is unknown.)
 - **max^n backup, not minimax.** With 3–4 players, backing up a single scalar
   and assuming the opponents minimise your score models a coalition that is not
   in the game. Each node carries a value per seat and selection maximises the
@@ -152,65 +165,81 @@ npm run sim -- --help
 | `--setup` | 0 | starting setup; each game rotates on from here |
 | `--opts` | — | JSON passed to every agent |
 | `--no-rotate` | off | keep seats fixed instead of permuting |
+| `--unpaired` | off | give every game its own deal (noisy and biased; for contrast only) |
 | `--verbose` | off | one game with a turn log |
 
 Output gives win rate with a confidence interval, mean Power, mean finishing
-rank, per-ambition counts at game end, and a Power histogram.
+rank, per-ambition counts at game end, a Power histogram, and a **paired
+head-to-head** verdict for the first two agents that says in as many words
+whether the interval excludes zero.
 
-**Seats are permuted, not rotated.** Rotating seats leaves the agents' cyclic
-order fixed, and in a lead-and-follow game sitting immediately after a weak
-player is worth real points: two *identical* greedy agents posted 78% / 22%
-under rotation and 50% / 50% under permutation. That bug would have made every
-comparison in this README wrong.
+**Deals are paired and seats are permuted**, and both are needed. Permuting
+alone leaves the agents' cyclic order fixed, and in a lead-and-follow game
+sitting immediately after a weak player is worth real points — two *identical*
+greedy agents posted 78% / 22% under rotation. Pairing alone would leave seat
+advantage in. Together they make the deal and the seat controlled variables:
+identical agents come out exactly 50/50, with zero variance, and a test asserts
+it.
 
 ## Results
 
-Modest batches, and the setups are still generated rather than the printed 12, so
-these describe *this engine's* Arcs.
+All from the **paired** harness — every deal played from every seating, so no
+agent can draw a friendlier set of starting positions than another. Numbers this
+project published before that fix are not comparable; see below.
 
 Two players:
 
-| matchup | games | win % | mean Power |
-|---|---|---|---|
-| `random+` vs `random` | 40 | 52.5 / 47.5 | 4.3 / 6.3 |
-| `greedy` vs `random+` | 40 | **100.0** / 0.0 | 43.3 / 1.5 |
-| `greedy` vs `mc` | 40 | 52.5 / 47.5 | 23.9 / 23.4 |
-| `greedy` vs `mcts` | 60 | 28.3 / **71.7** | 21.0 / 25.5 |
+| matchup | games | deals | win % | paired difference |
+|---|---|---|---|---|
+| `greedy` vs `random+` | 120 | 60 | **100.0** / 0.0 | +100.0 ±0.0 |
+| `greedy` vs `mc` | 120 | 60 | **65.8** / 34.2 | +31.7 ±15.1 |
+| `mcts` vs `greedy` | 120 | 60 | **65.0** / 35.0 | +30.0 ±17.0 |
+| `random+` vs `random` | 2000 | 1000 | **59.0** / 41.0 | +18.0 ±4.2 |
 
 Three players:
 
-| field | games | win % |
+| field | games | deals | win % |
+|---|---|---|---|
+| `greedy`, `mc`, `random` | 180 | 30 | **62.8** / 37.2 / 0.0 |
+
+**Every rung separates**, which has not been true before:
+`mcts` > `greedy` > `mc` > `random+` > `random`.
+
+**The measurement was broken, and finding that out was worth more than any result
+it produced.** The batch runner advanced the seed *and* the setup index on every
+game while cycling seatings through the `n!` permutations. At two players that
+aliases seating to setup parity exactly — one agent got every even setup, the
+other every odd one — so the permutations cancelled nothing. Two **identical**
+greedy agents, eight replications:
+
+| scheme | mean win-share gap | sd |
 |---|---|---|
-| `greedy`, `mc`, `random` | 60 | **56.7** / 43.3 / 0.0 |
+| paired (now) | **0.00** | 0.00 |
+| unpaired (before) | **−13.75** | 12.46 |
 
-**`mcts` beats `greedy`, and that is new.** This matchup has been measured five
-times as the rules got more accurate, and the first four readings — 50/50, 35/65,
-55/45, 41.7/58.3 — all sat inside a ±12.6 interval, which this project reported as
-"not separated" each time rather than picking the leader. The fifth is
-71.7 ± 11.4, an interval of [60.3, 83.1] that excludes 50%. `mcts` also passes
-`greedy` on mean Power for the first time, which had been the one stable
-difference between them.
+An agent losing to a copy of itself by 14 points is larger than most effects this
+project reported. Fixing it forced two corrections: `random+` really does beat
+`random` (called "no improvement" four times), and `greedy` beats `mc` in both
+player counts, undoing a "flip" previously credited to the map transcription. The
+`mcts` result survived, at 65.0 rather than 71.7.
 
-The likely cause is that a complete Court is the part of Arcs that rewards
-lookahead: card abilities are conditional and sequenced, and a one-step evaluation
-prices a setup move at nothing. That is a hypothesis, and the README says so —
-testing it needs an abilities-off switch the engine does not have.
+Worth noting what pairing did *not* do: the spread is unchanged (sd 9.49 either
+way). Common random numbers only reduce variance when the agents' play stays
+correlated, and here it diverges within a few decisions. The win was removing a
+confound, not tightening an interval.
 
-**Component data moves the ladder more than agent design does.** Three of those
-five readings moved on *data*, not code. Transcribing the map alone swung `greedy`
-vs `mc` by 22.5 points, larger than any change to an agent has produced. That is
-the main methodological result here: in a game this component-heavy, an engine
-built on plausible-looking reconstructed data produces a confident and wrong
-strategy ranking, and the error is invisible from inside the numbers.
+**A second measurement bug, in the search itself.** `determinize()` forgot cards
+played face up in earlier rounds of the chapter, so **65% of sampled worlds
+contained a card the observer had watched being played** — 1.56 apiece. Search
+agents were spending budget on impossible worlds. Now zero.
 
-**Finishing the Court exposed a hole in the bots, not the engine.** Instrumenting
-40 games shows three abilities offered constantly and never once taken — Farseers'
-Prelude (998 offers), attaching a Union (119), Execute (15). One cause: `eval.ts`
-has no term for hand quality, so trading cards for better cards evaluates as
-zero. That is now the highest-value thing to add to the evaluation.
+**Finishing the Court exposed a hole in the bots, not the engine.** Three
+abilities are offered constantly and never once taken — Farseers' Prelude (998
+offers in 40 games), attaching a Union (119), Execute (15). `eval.ts` has no term
+for hand quality, so trading cards for better cards evaluates as zero.
 
-See [docs/FINDINGS.md](docs/FINDINGS.md) for the evidence and the negative
-results.
+See [docs/FINDINGS.md](docs/FINDINGS.md) for the evidence, the negative results,
+and a belief model that measured as worthless and why.
 
 ## Layout
 
@@ -231,15 +260,17 @@ src/engine/            pure engine, no dependencies
   setup.ts             variants and the opening position
   game.ts              the state machine
   observe.ts           the imperfect-information boundary
+  belief.ts            hand inference from the public record (measured null)
 src/agents/            bots, the evaluation function, rollout plumbing
-src/sim/               seeded runner, tournament stats, CLI
+src/sim/               paired seeded runner, tournament stats, CLI
 src/ui/                React app (Play / Watch / Simulate)
+tools/                 calibration and offline-metric scripts
 tests/                 vitest suite
 ```
 
 ## Tests
 
-167 tests, in five groups:
+174 tests, in five groups:
 
 - `components.test.ts` — the map graph and its planet distribution, deck
   composition, pip and ambition tables, die-face distributions, marker values.

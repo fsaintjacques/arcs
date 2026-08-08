@@ -10,4 +10,5 @@ export * from './powers';
 export * from './board';
 export * from './setup';
 export * from './game';
+export * from './belief';
 export * from './observe';

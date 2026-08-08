@@ -581,6 +581,9 @@ function dealChapter(s: GameState, v: VariantDef, rng: RNG): void {
   s.actionDeck = [];
   s.actionDiscard = deck;
   s.round.consecutivePasses = 0;
+  // A fresh deal makes every card's location unknown again.
+  s.revealed = [];
+  s.declines = [];
 
   if (v.players === 2) {
     s.phase = 'mulligan';
@@ -733,6 +736,19 @@ function playCard(s: GameState, v: VariantDef, a: Action): void {
   const card = a.t === 'lead' ? a.card : (a as { card: number }).card;
   const mode: PlayMode = a.t === 'lead' ? 'lead' : (a as { mode: PlayMode }).mode;
   const def = actionCard(card);
+
+  // Public memory: a follower who does not Surpass is telling the table
+  // something about their hand. Record it before the lead can change.
+  if (mode === 'copy' || mode === 'pivot') {
+    const lead = s.round.lead;
+    if (lead) {
+      s.declines.push({
+        player,
+        suit: actionCard(lead.card).suit,
+        number: s.round.leadNumber,
+      });
+    }
+  }
 
   p.hand.splice(p.hand.indexOf(card), 1);
   const played = { player, card, mode, faceDown: mode === 'copy' };
@@ -1416,8 +1432,16 @@ function discardPlayed(s: GameState): void {
 
   for (const c of s.round.played) {
     const claimer = claimed.get(c.card);
-    if (claimer !== undefined) s.playerStates[claimer].hand.push(c.card);
-    else s.actionDiscard.push(c.card);
+    if (claimer !== undefined) {
+      // A Union pulls the card back into a hand. Everyone saw it, but it is no
+      // longer out of play, so it does not join `revealed` — the conservative
+      // choice loses information rather than inventing an impossible world.
+      s.playerStates[claimer].hand.push(c.card);
+    } else {
+      s.actionDiscard.push(c.card);
+      // Played face up: the whole table watched this card leave play.
+      if (!c.faceDown) s.revealed.push(c.card);
+    }
   }
   s.round.played = [];
 }

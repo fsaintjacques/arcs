@@ -12,6 +12,47 @@ treat the strategic conclusions as provisional.
 
 ## Methodology traps
 
+### The harness beat an agent with a copy of itself, by 14 points
+
+The worst measurement bug in the project, and it survived the seat-permutation
+fix below because it hides *behind* it.
+
+`simulate()` advanced the seed **and the setup index on every game**, while
+cycling seatings through the `n!` permutations. At 2 players that aliases
+seating to setup parity exactly: agent 1 sat in seat 0 for every even setup,
+agent 0 for every odd one. The permutations never met the same deal, so they
+cancelled nothing — each agent simply drew a different, systematically
+different, mix of starting positions.
+
+Two **identical** greedy agents, 8 replications of 40 games each:
+
+| scheme | mean win-share difference | sd across replications |
+|---|---|---|
+| paired (now) | **0.00** | 0.00 |
+| unpaired (before) | **−13.75** | 12.46 |
+
+Every replication of the paired scheme returns exactly zero, which is what
+common random numbers should do: play the same deal from both seats and one
+agent's good luck is the other's, precisely. The old scheme has an agent losing
+to a copy of itself by 14 points, in 7 of 8 replications.
+
+That is **bias, not variance**, and it is larger than most of the effects this
+file has reported. Every 2-player head-to-head number here came off that
+harness.
+
+The fix is to hold the deal fixed across a block of `n!` seatings and round the
+batch up to whole blocks. `pairedStats()` then works from within-block
+differences, so the unit of observation is a deal rather than a game.
+
+**What pairing did not buy.** It is worth being exact, because the expected
+benefit did not materialise: the spread of the estimate is essentially
+unchanged (sd 9.49 paired against 9.49 unpaired for `greedy` vs `greedy-flat`;
+5.67 against 6.59 for the two random agents). Common random numbers reduce
+variance only when the two agents' trajectories stay correlated, and in a game
+with this much branching they diverge within a few decisions. The win is
+removing the confound. The intervals are as wide as they ever were, and the
+answer to "how do I resolve a 5-point difference" is still "play more games".
+
 ### Rotating seats is not enough — permute them
 
 The first tournament runner rotated agents through seats, which is the obvious
@@ -62,6 +103,75 @@ stale and threw (`unhandled battle action move`).
 action type is invisible however many `move` variants crowd the list, and
 legality is re-derived on every visit rather than cached.
 
+### The sampler dealt out cards it had watched being played
+
+Found while building the belief model below, and worth more than the model was.
+
+`determinize()` treated a card as accounted for if it was in the observer's
+hand or on the table *this round*. Cards played face up in **earlier** rounds of
+the same chapter were forgotten, so the sampler cheerfully dealt them back into
+someone's hand. Measured over 30 games: **65% of sampled worlds contained at
+least one card the observer had personally watched being played**, 1.56 of them
+on average.
+
+Every search agent was therefore spending part of its budget on worlds that
+could not exist. The fix is a public memory (`GameState.revealed`) reset each
+chapter, which `observe()` passes through and `determinize()` is bound by. It
+takes the impossible-card count to zero.
+
+The general lesson is that the imperfect-information boundary needs a test that
+asks "could this world actually be true", not just "does the observer's own
+hand survive the round trip". The latter passed throughout.
+
+## Inferring hands from play: a negative result
+
+Arcs looked unusually friendly to belief modelling. The hidden state is tiny —
+at 3 players the deck is 20 cards, you hold 6, and the remaining 14 split
+6/6/2 — and a follower may Surpass only with the lead suit and a higher number
+(p10), so a player who Copies or Pivots instead appears to be advertising that
+they hold no such card. Uniform determinization throws all of that away.
+
+**It does not work.** The signal exists, is correctly signed, and is far too
+weak to matter:
+
+| quantity | value |
+|---|---|
+| holds a surpassing card, having just declined | 32.2% |
+| holds one, not having declined | 41.6% |
+| likelihood ratio on the **event** | 0.775 |
+| **per card** ruled against by a decline | 34.51% vs 35.88% → **0.962** |
+
+The event-level signal and the per-card signal differ by 25× in effect, and only
+the second is what a per-card weight table can use. Weighting the deal by it
+moves recall against the true hand from 37.19% to 37.18%, and the mean weight
+landing on cards actually held (0.9763) is indistinguishable from cards not held
+(0.9779). The code is kept, defaulted off, behind `beliefEnabled`.
+
+**Why the game resists it.** In a trick-taking game the strong inference is the
+*void*: a player who cannot follow suit is forced to reveal it. Arcs has no
+follow-suit obligation — Copy and Pivot are always legal whatever you hold — so
+declining to Surpass is a choice, not a confession, and the bots decline 65% of
+the time they could have surpassed. The public record carries much less about
+hands than the shape of the game suggests.
+
+**Four wrong constants on the way to one right one.** The parameter went 0.42
+(guessed), 0.649 (measured, but the wrong conditional), 0.866 (0.649 spread as
+`odds^(1/k)`, assuming an independence structure the data does not have), and
+finally 0.962 (measured per card, which is what the model consumes). Each was
+wrong in a way the previous metric could not see, and the one that finally
+exposed the confusion was the simplest possible diagnostic: *is the mean weight
+on cards actually held higher than on cards not held?* It was 0.9984 — the model
+pointed nowhere.
+
+That diagnostic also caught a real bug the fancier metrics had been silently
+absorbing. Weight rows were sized by `v.actionDeck.length`, which is 20 at 2–3
+players, but they are indexed by **card id**, which spans the full 28-card deck
+because removing the 1s and 7s does not renumber the rest. Every id above 19 read
+`undefined`, poisoning the arithmetic to `NaN` — and since `NaN <= 0` is false,
+the guard for "no weight left" did not fire, the roulette loop's comparisons all
+failed, and the sampler fell through to its last-index default. It had quietly
+stopped being random at all.
+
 ## The catapult can loop forever
 
 The rules say a catapult keeps moving "until they move to a gate controlled by
@@ -105,118 +215,144 @@ exactly the structure that averages throw away.
 
 ## The ladder
 
-Current numbers: corrected dice, the transcribed map, and the complete Court —
-all 31 card abilities dispatched.
+Every number below is from the **paired** harness. Earlier editions of this table
+are not comparable and should not be cited: they came off an instrument that
+could not tell an agent apart from a copy of itself.
 
 2 players:
 
-| matchup | games | win % | mean Power |
-|---|---|---|---|
-| `random+` vs `random` | 40 | 52.5 / 47.5 | 4.3 / 6.3 |
-| `greedy` vs `random+` | 40 | 100.0 / 0.0 | 43.3 / 1.5 |
-| `greedy` vs `mc` | 40 | 52.5 / 47.5 | 23.9 / 23.4 |
-| `greedy` vs `mcts` | 60 | 28.3 / **71.7** | 21.0 / 25.5 |
+| matchup | games | deals | win % | paired difference | separated |
+|---|---|---|---|---|---|
+| `greedy` vs `random+` | 120 | 60 | **100.0** / 0.0 | +100.0 ±0.0 | yes |
+| `greedy` vs `mc` | 120 | 60 | **65.8** / 34.2 | +31.7 ±15.1 | yes |
+| `mcts` vs `greedy` | 120 | 60 | **65.0** / 35.0 | +30.0 ±17.0 | yes |
+| `random+` vs `random` | 2000 | 1000 | **59.0** / 41.0 | +18.0 ±4.2 | yes |
 
 3 players:
 
-| field | games | win % |
-|---|---|---|
-| `greedy`, `mc`, `random` | 60 | 56.7 / 43.3 / 0.0 |
-
-An earlier 4-player run put two identical greedy seats at 43.8% and 41.7% — a
-useful check that permuted seating is doing its job.
-
-### `mcts` finally separated from `greedy`
-
-`greedy` vs `mcts`, same agents, same seeds, 60 games each, across five states of
-the rules:
-
-| rules state | greedy | mcts | interval covers 50%? |
+| field | games | deals | win % |
 |---|---|---|---|
-| inferred die faces | 50.0 | 50.0 | yes |
-| corrected die faces | 35.0 | 65.0 | yes |
-| + first Guild abilities | 55.0 | 45.0 | yes |
-| + transcribed map | 41.7 | 58.3 | yes |
-| + the complete Court | 28.3 | **71.7** | **no** |
+| `greedy`, `mc`, `random` | 180 | 30 | **62.8** / 37.2 / 0.0 |
 
-The first four rows all sat inside a ±12.6 interval, and this file has said four
-times that these two agents were closer together than 60 games could resolve.
-That was the right call then and it is worth keeping the record of it.
+**Every rung now separates**, which has never been true before:
 
-The fifth row is different: 71.7 ± 11.4 gives [60.3, 83.1], which excludes 50%.
-After four readings of noise, **the same batch size now shows a real gap**, and
-`mcts` also passes `greedy` on mean Power for the first time (25.5 vs 21.0),
-which had been the one stable difference between them.
+    mcts  >  greedy  >  mc  >  random+  >  random
 
-The most likely reason is that a complete Court is the part of Arcs that rewards
-lookahead. Card abilities are conditional, sequenced, and interact — a Prelude
-that places ships changes what a Battle can do later in the same turn; securing a
-Vox card opens a decision mid-turn. A one-step evaluation prices those at
-whatever the position looks like immediately afterwards, while a tree can see the
-follow-up. Every earlier version of the rules gave the search less of this to
-find. It is a hypothesis, not a demonstration — the honest test is to re-run the
-matchup with abilities disabled, which is a switch the engine does not currently
-have.
+Two of those orderings are new information rather than confirmation. `random+`
+beats `random`, after four readings that said otherwise. And `greedy` beats `mc`
+in *both* player counts, reversing the "flip" this file had attributed to the map
+correction.
 
-What it also means is that **greedy is now the weaker measuring stick**, and the
-`eval.ts` blind spot below is part of why.
+The intervals are still wide — ±15 to ±17 on the 120-game rows — because pairing
+removed a bias without shrinking the spread. Resolving anything finer than about
+15 points still needs many more games. The difference is that these numbers are
+now merely imprecise rather than wrong.
 
-### Fixing the map moved the ladder more than any agent change has
+### `mcts` beats `greedy`, and this one survived the harness fix
 
-The map correction only changed *which resource each planet yields and how many
-buildings fit on it* — no rule, no agent, no evaluation weight. It moved
-`greedy` vs `mc` from 67.5/32.5 to 45.0/55.0, a 22.5-point swing, and reversed
-the heads-up result.
+Of everything in this file, the claim most likely to have been an artefact was
+the newest and boldest one: that `mcts` had finally pulled clear of `greedy`. It
+was measured on the biased instrument, so it had to be re-run before it could be
+believed.
 
-The mechanism is visible in the type distribution. The invented map spread the
-types near-evenly and gave weapon planets deliberately scarce placement; the
-printed map has **Weapon ×4 and Relic/Psionic ×3**, so the two cheapest
-ambitions to contest — Keeper and Empath — sit on the *scarce* resources, and
-Weapon worlds, which score no ambition at all, are the *common* ones. A bot
-whose evaluation prices resources uniformly is now systematically overvaluing a
-third of the board.
+It holds. 120 paired games over 60 deals:
 
-`greedy` still wins the 3-player field, so the heads-up flip was not a clean
-reversal of strength — it was two agents trading places inside the noise band
-while the terrain under both of them changed. The lesson matches the dice one:
-**component data is not a detail that rounds out; it is an input the search reads
-directly.** Three of the five readings above moved on data, not code.
+| | win % | mean Power | paired difference |
+|---|---|---|---|
+| `mcts` | **65.0** | 23.5 | **+30.0 ±17.0** |
+| `greedy` | 35.0 | 22.3 | |
 
-It also retired a finding that had been stable across every previous version:
-`mcts` no longer scores less Power than `greedy`. Whatever was driving that gap
-was a property of the invented economy.
+25 deals to `mcts`, 7 to `greedy`, 28 split. The old number was 71.7; the honest
+one is 65.0 with an interval that excludes 50%. Same direction, slightly smaller,
+and now trustworthy.
 
-### `random+` is not an improvement
+`mcts` also holds its lead on mean Power (23.5 vs 22.3), which had been the one
+stable difference running the *other* way for most of this project's history.
 
-"Never end a turn with actions unspent, never burn a card to seize" sounds
-strictly better than uniform random. Over three 40-game readings it has come out
-52.5/47.5, then 62.5/37.5, then 52.5/47.5 again — all inside the ±15.5 interval.
-Spending every pip on a randomly chosen action is not worth much when the action
-is random. It remains useful as the rollout policy because it keeps rollouts
-moving, but 40 games cannot tell it apart from uniform random, and the readings
-straddling the midline are the evidence for that rather than against it. In the
-latest run `random` actually finished with *more* mean Power (6.3 vs 4.3) while
-winning less often, which is what noise at this level looks like.
+The five-reading history of this matchup — 50/50, 35/65, 55/45, 41.7/58.3,
+28.3/71.7 — is best read now as four measurements from a broken instrument plus
+one that happened to point the right way. It is not evidence that successive data
+corrections moved the ladder, because the instrument was moving too. What can be
+said is that on a working instrument, at the current rules, `mcts` is ahead.
 
-### Flat Monte-Carlo: the multiplayer result survived, the heads-up one did not
+The likely reason is that a complete Court is the part of Arcs that rewards
+lookahead: card abilities are conditional, sequenced and interacting — a Prelude
+that places ships changes what a Battle can do later the same turn, securing a
+Vox card opens a decision mid-turn — and a one-step evaluation prices those at
+whatever the position looks like immediately afterwards. That is still a
+hypothesis. Testing it needs an abilities-off switch the engine does not have.
+
+### How much did the map correction actually move? Unknown.
+
+This section used to claim the map transcription "moved the ladder more than any
+agent change has", on the strength of `greedy` vs `mc` swinging 22.5 points.
+**That claim is withdrawn.** Both the before and after numbers came off the
+biased harness, and re-measuring the same matchup properly puts it back where it
+started. The swing was the confound moving, not the map.
+
+What survives is the mechanism, which is a statement about the game rather than
+about a measurement. The invented map spread the types near-evenly; the printed
+map has **Weapon ×4 and Relic/Psionic ×3**, so the two cheapest ambitions to
+contest — Keeper and Empath — sit on the *scarce* resources, while Weapon worlds,
+which score no ambition at all, are the common ones. An evaluation that prices
+all five resources alike is systematically overvaluing a third of the board. That
+remains a good reason to expect gains from weight tuning.
+
+Whether the correction was worth ladder points is now simply unmeasured. Doing it
+properly means re-running both map versions on the fixed harness, which is cheap
+and has not been done.
+
+The dice correction earlier in this file rests on the same compromised
+instrument and deserves the same caveat.
+
+### `random+` *is* an improvement — four null readings were the harness
+
+This file said four times that "never end a turn with actions unspent, never burn
+a card to seize" was not measurably better than uniform random: 52.5/47.5, then
+62.5/37.5, then 52.5/47.5, all inside a ±15.5 interval on 40 games.
+
+On the fixed harness, 2000 paired games over 1000 deals:
+
+| | win % | paired difference |
+|---|---|---|
+| `random+` | **59.0** | **+18.0 ±4.2** |
+| `random` | 41.0 | |
+
+335 deals to `random+`, 155 to `random`, 510 split. That is not close, and it is
+not a small effect — 18 points is larger than anything else separating two bots
+here.
+
+Two things went wrong before, and they compound. The batches were 40 games, far
+too few for a ±15 interval to say anything. And the harness carried a systematic
+seat/setup confound worth about 14 points, in an unknown direction per matchup.
+A real 18-point effect is entirely capable of hiding under that, and it did.
+
+The lesson is not "we needed more games", though we did. It is that a null result
+from an instrument you have not validated is not a null result. The instrument
+here could not tell an agent apart from a copy of itself.
+
+### Flat Monte-Carlo loses to one-step greedy, and the "flip" was the harness
 
 `mc` samples worlds and plays each candidate action out several times, which is
-strictly more information than greedy's single settled lookahead. On the invented
-map it lost 32.5/67.5 heads-up; it has since read 45.0/55.0 and now 52.5/47.5 —
-a dead heat. What did *not* change is the 3-player field, where it has come
-second to `greedy` every time (43.3/56.7 now).
+strictly more information than greedy's single settled lookahead. It loses
+anyway, and now it does so with an interval that excludes zero:
 
-The structural argument for why `mc` should be weaker still holds: it has no
-tree, so it cannot see its own follow-up pips. An Arcs turn is a *sequence* of
-1–4 dependent actions (build a starport, then build a ship at it; move in, then
-battle), and evaluating the first action of that sequence against a random
-continuation prices the setup at close to nothing.
+| | games | win % | paired difference |
+|---|---|---|---|
+| `greedy` vs `mc`, 2 players | 120 | **65.8** / 34.2 | +31.7 ±15.1 |
+| `greedy` vs `mc`, 3 players (with `random`) | 180 | **62.8** / 37.2 / 0.0 | +25.6 ±14.2 |
 
-But the heads-up number no longer supports that argument, and the honest reading
-is that the argument was over-credited: a 22.5-point swing from a data edit means
-the original 67.5 was measuring the invented economy as much as the search
-shape. The multiplayer field is the more durable signal, and it is the weaker
-claim — `mc` is second, not beaten.
+The structural reason holds: `mc` has no tree, so it cannot see its own follow-up
+pips. An Arcs turn is a *sequence* of 1–4 dependent actions (build a starport,
+then build a ship at it; move in, then battle), and evaluating the first action of
+that sequence against a random continuation prices the setup at close to nothing.
+
+This section previously recorded the heads-up result "flipping" to 45.0/55.0 and
+then 52.5/47.5, and attributed it to the map correction. **That was the seat/setup
+confound, not the map.** On the fixed harness the direction is the original one
+and the size is roughly the original size. The multiplayer field, which never
+flipped, was the more durable signal throughout — which is a reason to trust the
+measurement that stayed still over the one that moved.
 
 ### Greedy builds more cities; the Power gap did not survive
 
@@ -227,16 +363,23 @@ search has no reason to prefer a position that scores 40 and loses over one that
 scores 24 and wins, and greedy's evaluation is Power-shaped and cannot express
 that difference.
 
-On the printed map the gap closed, and with the complete Court it has **reversed**
-— `mcts` now scores 25.5 to `greedy`'s 21.0 while also winning 71.7%. What
-survives is the city count: `greedy` builds 4.4 to `mcts`'s 4.1, and has built
-more in every single run, which is the part its Power-shaped evaluation actually
-rewards.
+On the paired harness the gap is **gone or slightly reversed**: `mcts` scores 23.5
+to `greedy`'s 22.3 while winning 65.0%. What survives, and has survived every
+version of every measurement here, is the **city count**: `greedy` builds 4.4 to
+`mcts`'s 3.8, and has built more in every single run.
 
-So the mechanism was wrong even though it fit four consecutive datasets. The
-Power gap was an artefact of the invented economy, not a consequence of valuing
-rollouts on standing. The narrower claim — that greedy over-builds cities because
-that is what its evaluation can see — is the one that held.
+So the mechanism was wrong even though it fit four consecutive datasets. It was
+never a consequence of valuing rollouts on standing; it was some mixture of the
+invented economy and the biased harness. The narrower claim — that greedy
+over-builds cities because cities are what its Power-shaped evaluation can see —
+is the one that held, and it held because it is a statement about the evaluation
+rather than about a win rate.
+
+That is a general pattern worth naming. Across this project the claims that
+survived scrutiny were the ones about *mechanism* — greedy cannot see cascades,
+greedy cannot see hand quality, greedy over-builds cities — and the ones that
+collapsed were the ones about *ordering*. Mechanism claims are checkable against
+a single game; ordering claims need an instrument, and the instrument was broken.
 
 Remaining levers for the search, roughly in order of expected value:
 
@@ -301,14 +444,24 @@ weight tuning on the terms already there.
   types but the evaluation prices all five resources alike, and Weapon — the
   commonest type — scores no ambition at all. A CEM or paired-seed grid search
   over the weights is the obvious next step.
-- **Batch size.** Four of the five `greedy`/`mcts` readings sat inside the
-  interval, and only the fifth cleared it. `greedy` vs `mc` is still unresolved
-  after three readings. Paired-seed variance reduction is the cheap fix and is
-  worth more than another 60 games.
+- **Batch size — still the binding constraint.** Pairing removed the bias but not
+  the spread, so the 120-game rows still carry ±15 to ±17. The engine runs ~1000
+  random games a second and `greedy` about 35, so 2000-game batches are minutes
+  for the cheap agents and the reason not to run them is `mcts` at 3s a game.
+  Making the search cheaper is therefore also a *measurement* improvement.
 - **An abilities-off switch.** The claim that a complete Court is what let `mcts`
   separate is untested, because there is no way to run the same batch with the
   abilities disabled. A variant flag that keeps the card data but drops
   `power`/`vox` dispatch would turn that hypothesis into a measurement.
+- **Re-measuring the data corrections.** The dice and map corrections were each
+  credited with moving the ladder, on the compromised instrument. Both are cheap
+  to re-run properly, and until that happens their effect on playing strength is
+  unknown rather than established.
+- **A stronger inference model.** The decline signal is a dead end for the reason
+  given above — Arcs has no follow-suit obligation, so there is no void to infer.
+  If anything is to be gained here it will come from a learned model over the
+  whole public record rather than one hand-specified feature. The metric harness
+  (`tools/belief-eval.ts`) is in place to judge it.
 - **Learned value function.** The state is large but regular (24 systems ×
   pieces, 5 ambitions, hand shape); a TD(λ) afterstate net is the natural
   follow-up now that the Court is complete.

@@ -210,6 +210,8 @@ export function newGame(v: VariantDef, rng: RNG, setupIndex = 0): GameState {
     unions: [],
     pendingVox: null,
     peek: null,
+    revealed: [],
+    declines: [],
     stats: {
       rounds: 0,
       chapters: 0,
