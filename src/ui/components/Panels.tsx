@@ -3,7 +3,6 @@ import {
   AMBITIONS,
   ambitionCount,
   actionCard,
-  courtCard,
   markerValue,
   openResourceSlots,
   type GameState,
@@ -15,10 +14,9 @@ import {
   PLAYER_COLORS,
   PLAYER_NAMES,
   RESOURCE_ICON,
-  SUIT_SHORT,
-  cardLabel,
 } from '../describe';
 import type { LogEntry } from '../useGame';
+import { ActionCardFace, CourtCardFace } from './Cards';
 
 export function Ambitions({ state, variant }: { state: GameState; variant: VariantDef }) {
   return (
@@ -81,26 +79,9 @@ export function Court({ state }: { state: GameState }) {
     <section className="panel">
       <h2>The Court</h2>
       <div className="court">
-        {state.court.map((slot, i) => {
-          const card = courtCard(slot.card);
-          return (
-            <div key={i} className="court-card" title={card.text}>
-              <div className="court-name">{card.name}</div>
-              <div className="court-meta">
-                {card.suit ? `${RESOURCE_ICON[card.suit]} · raid ${card.raidCost}` : 'Vox'}
-              </div>
-              <div className="agents">
-                {slot.agents.map((n, p) =>
-                  n > 0 ? (
-                    <span key={p} style={{ color: PLAYER_COLORS[p] }}>
-                      {'●'.repeat(Math.min(n, 6))}
-                    </span>
-                  ) : null,
-                )}
-              </div>
-            </div>
-          );
-        })}
+        {state.court.map((slot, i) => (
+          <CourtCardFace key={i} card={slot.card} agents={slot.agents} compact />
+        ))}
       </div>
     </section>
   );
@@ -169,25 +150,37 @@ export function Players({
 
 export function Trick({ state }: { state: GameState }) {
   const lead = state.round.lead;
+  const zeroed = state.round.leadNumber === 0;
   return (
     <section className="panel">
       <h2>This round</h2>
-      {lead ? (
-        <p>
-          Lead: <strong>{cardLabel(lead.card)}</strong> ({SUIT_SHORT[actionCard(lead.card).suit]}),
-          effective number <strong>{state.round.leadNumber}</strong>
-          {state.round.leadNumber === 0 && <span className="hint"> — ambition declared</span>}
-        </p>
-      ) : (
-        <p className="dim">No lead card yet.</p>
-      )}
+      {state.round.played.length === 0 && <p className="dim">No cards played yet.</p>}
       <div className="played">
-        {state.round.played.map((c, i) => (
-          <span key={i} className="chip" style={{ borderColor: PLAYER_COLORS[c.player] }}>
-            P{c.player} {c.faceDown && c.card < 0 ? '??' : cardLabel(c.card)} · {c.mode}
-          </span>
-        ))}
+        {state.round.played.map((c, i) => {
+          const isLead = lead !== null && c === lead;
+          const hidden = c.faceDown && c.card < 0;
+          return (
+            <figure key={i} className={`play${isLead ? ' play-lead' : ''}`}>
+              {hidden ? (
+                <div className="card-back" title="Played face down" />
+              ) : (
+                <ActionCardFace card={c.card} small zeroed={isLead && zeroed} />
+              )}
+              <figcaption style={{ color: PLAYER_COLORS[c.player] }}>
+                P{c.player}
+                <span className="dim"> {isLead ? 'lead' : c.mode}</span>
+              </figcaption>
+            </figure>
+          );
+        })}
       </div>
+      {lead && (
+        <p className="hint">
+          Follow with {actionCard(lead.card).suit} above{' '}
+          <strong>{state.round.leadNumber}</strong> to Surpass
+          {zeroed && ' — the zero marker makes any card of the suit enough'}.
+        </p>
+      )}
     </section>
   );
 }
@@ -195,23 +188,17 @@ export function Trick({ state }: { state: GameState }) {
 export function Hand({ state, seat }: { state: GameState; seat: number | null }) {
   if (seat === null) return null;
   const hand = [...state.playerStates[seat].hand].sort(
-    (a, b) => actionCard(a).suit.localeCompare(actionCard(b).suit) || actionCard(a).number - actionCard(b).number,
+    (a, b) =>
+      actionCard(a).suit.localeCompare(actionCard(b).suit) ||
+      actionCard(a).number - actionCard(b).number,
   );
   return (
     <section className="panel">
       <h2>Your hand</h2>
       <div className="hand">
-        {hand.map((card) => {
-          const c = actionCard(card);
-          return (
-            <div key={card} className={`card suit-${c.suit}`}>
-              <div className="card-number">{c.number}</div>
-              <div className="card-suit">{SUIT_SHORT[c.suit]}</div>
-              <div className="card-pips">{'●'.repeat(c.pips)}</div>
-              {c.ambition && <div className="card-ambition">{c.ambition === 'any' ? 'any' : c.ambition}</div>}
-            </div>
-          );
-        })}
+        {hand.map((card) => (
+          <ActionCardFace key={card} card={card} />
+        ))}
         {hand.length === 0 && <p className="dim">No cards left this chapter.</p>}
       </div>
     </section>

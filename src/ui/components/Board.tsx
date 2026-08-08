@@ -1,41 +1,100 @@
 /**
- * The map of the Reach: 6 clusters on a ring, each a gate plus 3 planets.
+ * The map of the Reach, laid out like the printed board.
  *
- * Laid out from the engine's graph rather than a picture, so it stays correct
- * if the map data is replaced (see docs/DATA-GAPS.md §2).
+ * The printed map is a wheel: a dark void at the centre carrying the wordmark,
+ * a ring of six numbered **gates** around it (1 at the top, 2-6 clockwise), and
+ * six pie **wedges** radiating outward, one per cluster, each holding that
+ * cluster's three planets. Planets are discs with their building slots drawn as
+ * outlined triangles and their resource type on a badge beside them.
+ *
+ * Geometry comes from the engine's graph, not from a picture, so replacing the
+ * map data moves the board with it (see docs/DATA-GAPS.md §2). What is copied
+ * from the printed board is the *arrangement* — the wheel, the gate ring, the
+ * numbering, the triangles — rather than any artwork.
  */
-import { clusterOf, isGate, type GameState, type ResourceType, type VariantDef } from '../../engine';
-import { PLAYER_COLORS, RESOURCE_ICON } from '../describe';
+import {
+  CLUSTER_COUNT,
+  clusterOf,
+  isGate,
+  type GameState,
+  type VariantDef,
+} from '../../engine';
+import { PLAYER_COLORS } from '../describe';
+import { BuildingSlot, CLUSTER_TINT, RESOURCE_COLOR, ResourceGlyph } from './Glyphs';
 
-const SIZE = 620;
-const CENTRE = SIZE / 2;
-const GATE_R = 132;
-const PLANET_R = 238;
+const SIZE = 680;
+const C = SIZE / 2;
+const VOID_R = 88; // the dark centre
+const GATE_IN = 92; // gate ring inner edge
+const GATE_OUT = 146; // gate ring outer edge
+const PLANET_R = 286; // outer edge of the planet field
 
-const PLANET_COLORS: Record<ResourceType, string> = {
-  material: '#c98b3f',
-  fuel: '#c9a83f',
-  weapon: '#c04a3f',
-  relic: '#4aa9c0',
-  psionic: '#8a5fc0',
-};
+/** Cluster c occupies the wedge centred on this angle, with gate 1 at the top. */
+function clusterAngle(cluster: number): number {
+  return (cluster * (360 / CLUSTER_COUNT) - 90) * (Math.PI / 180);
+}
 
-/** Screen position of a system, from its cluster and slot. */
+const WEDGE = (2 * Math.PI) / CLUSTER_COUNT;
+
+/**
+ * Where each of a cluster's three planets sits inside its wedge, as
+ * (fraction of the wedge's half-angle, fraction of the radial span).
+ *
+ * The printed board scatters them rather than lining them up, which is what
+ * makes a cluster read as a place instead of a row. This keeps that character
+ * while staying regular enough that six clusters do not look accidental.
+ */
+const PLANET_SLOTS: [number, number][] = [
+  [-0.62, 0.34],
+  [0.06, 0.98],
+  [0.66, 0.42],
+];
+
+/** Screen position of a system. Exported so the UI can point at systems. */
 export function systemPos(v: VariantDef, id: number): { x: number; y: number } {
   const def = v.systems[id];
-  const base = (def.cluster * 60 - 90) * (Math.PI / 180);
+  const base = clusterAngle(def.cluster);
   if (def.kind === 'gate') {
-    return { x: CENTRE + GATE_R * Math.cos(base), y: CENTRE + GATE_R * Math.sin(base) };
+    const r = (GATE_IN + GATE_OUT) / 2;
+    return { x: C + r * Math.cos(base), y: C + r * Math.sin(base) };
   }
-  const spread = ((def.slot - 2) * 20 * Math.PI) / 180;
-  const a = base + spread;
-  return { x: CENTRE + PLANET_R * Math.cos(a), y: CENTRE + PLANET_R * Math.sin(a) };
+  const [spread, depth] = PLANET_SLOTS[def.slot - 1];
+  const a = base + spread * (WEDGE / 2);
+  const r = GATE_OUT + 42 + depth * (PLANET_R - GATE_OUT - 42);
+  return { x: C + r * Math.cos(a), y: C + r * Math.sin(a) };
+}
+
+/**
+ * Labels sit radially outward from their planet, away from the hub. Anything
+ * fixed — always above, always below — collides as soon as two planets in a
+ * wedge share a radius, which the scatter above guarantees.
+ */
+function labelPos(v: VariantDef, id: number, discR: number): { x: number; y: number } {
+  const { x, y } = systemPos(v, id);
+  const d = Math.hypot(x - C, y - C) || 1;
+  const k = (discR + 16) / d;
+  return { x: x + (x - C) * k, y: y + (y - C) * k + 4 };
+}
+
+/** An annular sector — one gate's segment of the ring. */
+function ringSector(cluster: number, inner: number, outer: number, pad = 0.035): string {
+  const a0 = clusterAngle(cluster) - WEDGE / 2 + pad;
+  const a1 = clusterAngle(cluster) + WEDGE / 2 - pad;
+  const p = (r: number, a: number) => `${C + r * Math.cos(a)} ${C + r * Math.sin(a)}`;
+  return [
+    `M ${p(inner, a0)}`,
+    `L ${p(outer, a0)}`,
+    `A ${outer} ${outer} 0 0 1 ${p(outer, a1)}`,
+    `L ${p(inner, a1)}`,
+    `A ${inner} ${inner} 0 0 0 ${p(inner, a0)}`,
+    'Z',
+  ].join(' ');
 }
 
 interface Props {
   state: GameState;
   variant: VariantDef;
-  /** Systems to ring in white — the targets of the hovered/available actions. */
+  /** Systems to ring in white — the targets of the available actions. */
   highlight?: Set<number>;
   selected?: number | null;
   onSelect?: (system: number | null) => void;
@@ -52,16 +111,35 @@ export function Board({ state, variant, highlight, selected, onSelect }: Props) 
 
   return (
     <svg className="board" viewBox={`0 0 ${SIZE} ${SIZE}`} role="img" aria-label="Map of the Reach">
-      <circle cx={CENTRE} cy={CENTRE} r={62} className="board-core" />
-      <text x={CENTRE} y={CENTRE + 5} className="board-core-label">
-        ARCS
-      </text>
+      <defs>
+        <radialGradient id="voidFill">
+          <stop offset="0%" stopColor="#14131c" />
+          <stop offset="100%" stopColor="#08070c" />
+        </radialGradient>
+        <radialGradient id="gateFill">
+          <stop offset="0%" stopColor="#2b2a38" />
+          <stop offset="100%" stopColor="#1a1a24" />
+        </radialGradient>
+      </defs>
 
+      {/* Cluster wedges, tinted like the printed rainbow. */}
+      {Array.from({ length: CLUSTER_COUNT }, (_, cl) => {
+        const dead = state.systems[cl * 4].outOfPlay;
+        return (
+          <path
+            key={cl}
+            d={ringSector(cl, GATE_OUT - 4, SIZE / 2 - 6, 0.012)}
+            fill={CLUSTER_TINT[cl]}
+            opacity={dead ? 0.05 : 0.19}
+          />
+        );
+      })}
+
+      {/* Edges sit under the systems. */}
       {edges.map(([a, b]) => {
         const pa = systemPos(variant, a);
         const pb = systemPos(variant, b);
-        // Gate-to-gate links across a dead cluster are path markers.
-        const isPath =
+        const path =
           isGate(a) && isGate(b) && Math.abs(clusterOf(a) - clusterOf(b)) % 5 !== 1;
         return (
           <line
@@ -70,18 +148,51 @@ export function Board({ state, variant, highlight, selected, onSelect }: Props) 
             y1={pa.y}
             x2={pb.x}
             y2={pb.y}
-            className={isPath ? 'edge edge-path' : 'edge'}
+            className={path ? 'edge edge-path' : 'edge'}
           />
         );
       })}
 
-      {variant.systems.map((def) => {
-        const sys = state.systems[def.id];
+      {/* The void and its wordmark. */}
+      <circle cx={C} cy={C} r={VOID_R} fill="url(#voidFill)" stroke="#3a3550" strokeWidth="1.5" />
+      <text x={C} y={C + 9} className="board-wordmark">
+        ARCS
+      </text>
+
+      {/* Gates: numbered segments of the ring. */}
+      {Array.from({ length: CLUSTER_COUNT }, (_, cl) => {
+        const id = cl * 4;
+        const sys = state.systems[id];
         if (sys.outOfPlay) return null;
+        const { x, y } = systemPos(variant, id);
+        const on = highlight?.has(id);
+        return (
+          <g
+            key={id}
+            className={`system${selected === id ? ' system-selected' : ''}`}
+            onClick={() => onSelect?.(selected === id ? null : id)}
+          >
+            <path
+              d={ringSector(cl, GATE_IN, GATE_OUT)}
+              fill="url(#gateFill)"
+              className={on ? 'gate-shape system-highlight' : 'gate-shape'}
+            />
+            <text x={x} y={y + 7} className="gate-number">
+              {cl + 1}
+            </text>
+            <Pieces state={state} system={id} x={x} y={y + 26} />
+          </g>
+        );
+      })}
+
+      {/* Planets. */}
+      {variant.systems.map((def) => {
+        if (def.kind !== 'planet' || state.systems[def.id].outOfPlay) return null;
+        const sys = state.systems[def.id];
         const { x, y } = systemPos(variant, def.id);
-        const gate = def.kind === 'gate';
-        const r = gate ? 26 : 30;
-        const fill = gate ? '#2b3348' : PLANET_COLORS[def.planetType!];
+        const r = 34;
+        const type = def.planetType!;
+        const on = highlight?.has(def.id);
 
         return (
           <g
@@ -93,53 +204,81 @@ export function Board({ state, variant, highlight, selected, onSelect }: Props) 
               cx={x}
               cy={y}
               r={r}
-              fill={fill}
-              className={highlight?.has(def.id) ? 'system-shape system-highlight' : 'system-shape'}
+              fill={RESOURCE_COLOR[type]}
+              fillOpacity={0.32}
+              stroke={RESOURCE_COLOR[type]}
+              strokeWidth={1.6}
+              className={on ? 'planet-shape system-highlight' : 'planet-shape'}
             />
-            <text x={x} y={y - r - 7} className="system-label">
-              {gate ? def.label : `${def.label} ${RESOURCE_ICON[def.planetType!]}`}
-            </text>
 
-            {/* Buildings: a square per starport, a house shape per city. */}
-            {sys.buildings.map((b, i) => (
-              <rect
-                key={i}
-                x={x - r + 5 + i * 13}
-                y={y - 6}
-                width={11}
-                height={11}
-                rx={b.kind === 'city' ? 1 : 5}
-                fill={PLAYER_COLORS[b.player]}
-                opacity={b.damaged ? 0.4 : 1}
-                stroke="#0d1017"
-                strokeWidth={1}
-              />
-            ))}
-
-            {/* Ship counts per player, fresh + damaged. */}
-            {sys.fresh.map((fresh, p) => {
-              const damaged = sys.damaged[p];
-              if (fresh + damaged === 0) return null;
-              const order = sys.fresh
-                .map((f, i) => (f + sys.damaged[i] > 0 ? i : -1))
-                .filter((i) => i >= 0)
-                .indexOf(p);
+            {/* Building slots: one outlined triangle per slot, filled once built. */}
+            {Array.from({ length: def.buildingSlots }, (_, i) => {
+              const b = sys.buildings[i];
+              const span = (def.buildingSlots - 1) * 16;
               return (
-                <text
-                  key={p}
-                  x={x - r + 8 + order * 16}
-                  y={y + r - 4}
-                  className="ship-count"
-                  fill={PLAYER_COLORS[p]}
-                >
-                  {fresh}
-                  {damaged > 0 ? `+${damaged}` : ''}
-                </text>
+                <BuildingSlot
+                  key={i}
+                  x={x - span / 2 + i * 16}
+                  y={y - 5}
+                  size={15}
+                  fill={b ? PLAYER_COLORS[b.player] : undefined}
+                  kind={b?.kind}
+                  damaged={b?.damaged}
+                />
               );
             })}
+
+            {/* The resource badge, as printed beside each planet. */}
+            <g transform={`translate(${x + r - 6} ${y - r + 1})`}>
+              <circle r="10" fill="#0d0c12" stroke={RESOURCE_COLOR[type]} strokeWidth="1.4" />
+              <g transform="translate(-7 -7)">
+                <ResourceGlyph type={type} size={14} />
+              </g>
+            </g>
+
+            {(() => {
+              const lp = labelPos(variant, def.id, r);
+              return (
+                <text x={lp.x} y={lp.y} className="system-label">
+                  {def.label}
+                </text>
+              );
+            })()}
+            <Pieces state={state} system={def.id} x={x} y={y + 22} />
           </g>
         );
       })}
     </svg>
+  );
+}
+
+/** Ship counts per player, drawn under a system. */
+function Pieces({
+  state,
+  system,
+  x,
+  y,
+}: {
+  state: GameState;
+  system: number;
+  x: number;
+  y: number;
+}) {
+  const sys = state.systems[system];
+  const present = sys.fresh
+    .map((f, p) => (f + sys.damaged[p] > 0 ? p : -1))
+    .filter((p) => p >= 0);
+  if (present.length === 0) return null;
+
+  const w = 19;
+  return (
+    <g transform={`translate(${x - ((present.length - 1) * w) / 2} ${y})`}>
+      {present.map((p, i) => (
+        <text key={p} x={i * w} y={0} className="ship-count" fill={PLAYER_COLORS[p]}>
+          {sys.fresh[p]}
+          {sys.damaged[p] > 0 ? <tspan className="ship-damaged">+{sys.damaged[p]}</tspan> : null}
+        </text>
+      ))}
+    </g>
   );
 }

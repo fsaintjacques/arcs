@@ -102,6 +102,9 @@ function GameView({ mode }: { mode: 'play' | 'watch' }) {
           onSelect={setSelected}
         />
 
+        {mode === 'play' && <Hand state={s} seat={humanSeat} />}
+        <Court state={s} />
+
         {over && (
           <section className="panel">
             <h2>Final standings</h2>
@@ -130,8 +133,6 @@ function GameView({ mode }: { mode: 'play' | 'watch' }) {
         )}
         <Trick state={s} />
         <Ambitions state={s} variant={game.variant} />
-        {mode === 'play' && <Hand state={s} seat={humanSeat} />}
-        <Court state={s} />
         <Players state={s} humanSeats={game.humanSeats} actor={game.actor} />
         <Log log={game.log} />
       </div>
