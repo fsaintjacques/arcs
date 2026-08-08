@@ -30,8 +30,8 @@ if (args.help === 'true') {
                available: ${agentNames().join(', ')}
   --games      batch size (default 100)
   --seed       base seed; games are fully reproducible from it (default 1)
-  --setup      seeds the opening (default 0): which setup card is drawn, and
-               which position on it each player takes
+  --setup      seeds the opening (default 0): which of the four printed setup
+               cards for this player count is drawn
   --free-setup invent a fresh legal opening per deal instead of drawing one of
                the 4 setup cards — thousands of boards, for large batches
   --opts       JSON passed to every agent, e.g. '{"iterations":800}'

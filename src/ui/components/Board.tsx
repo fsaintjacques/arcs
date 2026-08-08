@@ -8,7 +8,7 @@
  * outlined triangles and their resource type on a badge beside them.
  *
  * Geometry comes from the engine's graph, not from a picture, so replacing the
- * map data moves the board with it (see docs/DATA-GAPS.md §2). What is copied
+ * map data moves the board with it (see docs/DATA-GAPS.md). What is copied
  * from the printed board is the *arrangement* — the wheel, the gate ring, the
  * numbering, the triangles — rather than any artwork.
  */
@@ -19,8 +19,8 @@ import {
   type GameState,
   type VariantDef,
 } from '../../engine';
-import { PLAYER_COLORS } from '../describe';
-import { BuildingSlot, CLUSTER_TINT, RESOURCE_COLOR, ResourceGlyph } from './Glyphs';
+import { PLAYER_COLORS, PLAYER_NAMES } from '../describe';
+import { BuildingSlot, CLUSTER_TINT, RESOURCE_COLOR, ResourceGlyph, Ship } from './Glyphs';
 
 const SIZE = 680;
 const C = SIZE / 2;
@@ -252,7 +252,13 @@ export function Board({ state, variant, highlight, selected, onSelect }: Props) 
   );
 }
 
-/** Ship counts per player, drawn under a system. */
+/**
+ * Ships per player, drawn under a system.
+ *
+ * Fresh and damaged are separate stacks with their own glyph — upright and
+ * tipped over — rather than one count with a modifier, because only fresh ships
+ * count for control (p6) and only damaged ones die to the next hit.
+ */
 function Pieces({
   state,
   system,
@@ -265,19 +271,31 @@ function Pieces({
   y: number;
 }) {
   const sys = state.systems[system];
-  const present = sys.fresh
-    .map((f, p) => (f + sys.damaged[p] > 0 ? p : -1))
-    .filter((p) => p >= 0);
-  if (present.length === 0) return null;
+  const stacks: { player: number; n: number; damaged: boolean }[] = [];
+  sys.fresh.forEach((n, p) => {
+    if (n > 0) stacks.push({ player: p, n, damaged: false });
+    if (sys.damaged[p] > 0) stacks.push({ player: p, n: sys.damaged[p], damaged: true });
+  });
+  if (stacks.length === 0) return null;
 
-  const w = 19;
+  const w = 26;
   return (
-    <g transform={`translate(${x - ((present.length - 1) * w) / 2} ${y})`}>
-      {present.map((p, i) => (
-        <text key={p} x={i * w} y={0} className="ship-count" fill={PLAYER_COLORS[p]}>
-          {sys.fresh[p]}
-          {sys.damaged[p] > 0 ? <tspan className="ship-damaged">+{sys.damaged[p]}</tspan> : null}
-        </text>
+    <g transform={`translate(${x - ((stacks.length - 1) * w) / 2} ${y})`}>
+      {stacks.map((s, i) => (
+        <g key={`${s.player}-${s.damaged}`}>
+          <title>
+            {`${s.n} ${s.damaged ? 'damaged' : 'fresh'} ship${s.n === 1 ? '' : 's'} — ${PLAYER_NAMES[s.player]}`}
+          </title>
+          <Ship x={i * w - 6} y={0} size={15} color={PLAYER_COLORS[s.player]} damaged={s.damaged} />
+          <text
+            x={i * w + 6}
+            y={4}
+            className={s.damaged ? 'ship-count ship-damaged' : 'ship-count'}
+            fill={PLAYER_COLORS[s.player]}
+          >
+            {s.n}
+          </text>
+        </g>
       ))}
     </g>
   );

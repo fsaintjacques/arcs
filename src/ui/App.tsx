@@ -45,8 +45,8 @@ export default function App() {
       {tab === 'simulate' ? <SimPanel /> : <GameView key={tab} mode={tab} />}
       <footer className="dim">
         Unofficial fan-made implementation of <em>Arcs</em> (Cole Wehrle, Leder Games) for strategy
-        research. All 31 Court card abilities are implemented; the setup cards are generated rather
-        than the printed 12 — see docs/DATA-GAPS.md.
+        research. All 31 Court card abilities, the whole map and all 12 setup cards are the printed
+        ones; two small component values are still reconstructed — see docs/DATA-GAPS.md.
       </footer>
     </div>
   );

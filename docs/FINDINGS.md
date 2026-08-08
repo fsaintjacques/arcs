@@ -4,12 +4,11 @@ Research notes from building the engine and the first bots. Headline numbers
 are in the README; this keeps the evidence, the negative results, and the
 methodology traps that cost real time.
 
-Everything here describes **this engine's Arcs**. All 31 Court cards are real
-data with every printed ability dispatched, and the map's planet types and
-building slots are transcribed from the printed board. Opening positions are a
-random legal draw rather than the printed 12 setup cards, and a few component
-details are still reconstructed (see [DATA-GAPS.md](DATA-GAPS.md)), so treat the
-strategic conclusions as provisional.
+Everything here describes **this engine's Arcs**. All 31 Court cards, the whole
+map — planet types, building slots and every border round the planet ring — and
+all 12 setup cards are transcribed from the printed game. Two small component
+values are still reconstructed (see [DATA-GAPS.md](DATA-GAPS.md)), and the bots
+are weak in absolute terms, so treat the strategic conclusions as provisional.
 
 ## Methodology traps
 
@@ -216,50 +215,60 @@ exactly the structure that averages throw away.
 
 ## The ladder
 
-Every number below is from the **paired** harness, playing the setup-card deck —
-draw one of the four cards for your player count, take positions on it at
-random. Earlier editions of this table are not comparable and should not be
-cited.
+Every number below is from the **paired** harness at `--seed 1`, playing the
+**printed** setup deck — draw one of the four cards for your player count, take
+positions from the initiative marker. Earlier editions of this table are not
+comparable and should not be cited.
 
 2 players:
 
 | matchup | games | deals | win % | paired difference | separated |
 |---|---|---|---|---|---|
 | `greedy` vs `random+` | 120 | 60 | **100.0** / 0.0 | +100.0 ±0.0 | yes |
-| `mcts` vs `greedy` | 120 | 60 | **71.7** / 28.3 | +43.3 ±17.0 | yes |
-| `random+` vs `random` | 2000 | 1000 | **60.5** / 39.6 | +20.9 ±4.2 | yes |
-| `greedy` vs `mc` | 120 | 60 | 59.2 / 40.8 | +18.3 ±18.3 | **no** |
+| `mcts` vs `greedy` | 120 | 60 | **70.0** / 30.0 | +40.0 ±14.1 | yes |
+| `random+` vs `random` | 2000 | 1000 | **60.0** / 40.0 | +20.0 ±4.2 | yes |
+| `greedy` vs `mc` | 120 | 60 | 51.7 / 48.3 | +3.3 ±15.4 | **no** |
 
 3 players:
 
 | field | games | deals | win % | paired (`greedy` vs `mc`) |
 |---|---|---|---|---|
-| `greedy`, `mc`, `random` | 180 | 30 | **65.0** / 35.0 / 0.0 | +30.0 ±12.3, separated |
+| `greedy`, `mc`, `random` | 180 | 30 | **57.2** / 42.8 / 0.0 | +14.4 ±13.5, separated |
 
     mcts  >  greedy  >  mc  >  random+  >  random
 
-`greedy` vs `mc` is the one rung not settled head-to-head, though `greedy` takes
-the 3-player field comfortably.
+`greedy` vs `mc` is the one rung not settled head-to-head, and on the printed
+deck it is a dead heat — though `greedy` still takes the 3-player field.
 
 ### The opening is a variable, and holding it still flatters results
 
-The same matchup, the same agents, three different ways of choosing the opening:
+The same matchup, the same agents, four different ways of choosing the opening:
 
 | openings | `greedy` vs `mc` | separated |
 |---|---|---|
 | 6 fixed rotations | +31.7 ±15.1 | yes |
-| 4 setup cards (as played) | +18.3 ±18.3 | no |
+| 4 reconstructed cards | +18.3 ±18.3 | no |
 | ~3000 free draws | +13.3 ±17.1 | no |
+| **the printed 12** | **+3.3 ±15.4** | no |
 
 Nothing about either agent changed between those rows. The original six
 rotations gave every player a home cluster with the same two planets of it, and
 whatever edge `greedy` had was substantially an edge **on those six boards**.
-Widening the pool of openings halves it and takes the interval across zero.
+Widening the pool of openings halved it and took the interval across zero.
 
-The 3-player field kept its separation throughout (+30.0 ±12.3 on the deck), the
-same pattern as every other shake-up in this file: **the multiplayer result is
-the durable one**, probably because a third player's presence swamps whatever
-small edge a particular opening confers.
+Then the printed cards arrived and halved it again, twice over. That last row is
+the sharpest version of the lesson, because the four cards it replaced were not
+arbitrary — they were *scored for balance* by this project, on criteria this
+project chose (equal building capacity, distinct resource types, no crowding).
+Openings picked to be fair to a metric still flattered the agent that reads that
+metric. The real cards are less tidy — 3 of the 12 hand one player an extra
+building slot — and on them the two agents are a dead heat.
+
+The 3-player field kept its separation throughout (+14.4 ±13.5 on the printed
+deck, down from +30.0 ±12.3 but still clear of zero), the same pattern as every
+other shake-up in this file: **the multiplayer result is the durable one**,
+probably because a third player's presence swamps whatever small edge a
+particular opening confers.
 
 This is why `SetupMode` has two settings rather than one. `deck` is the game as
 played and is the default. `draw` treats the opening as a nuisance variable, and
@@ -274,20 +283,22 @@ was measured on the biased instrument, so it had to be re-run before it could be
 believed.
 
 It holds through every change to how it is measured. 120 paired games over 60
-deals on the setup deck:
+deals on the printed setup deck:
 
 | | win % | mean Power | paired difference |
 |---|---|---|---|
-| `mcts` | **71.7** | 25.6 | **+43.3 ±17.0** |
-| `greedy` | 28.3 | 22.0 | |
+| `mcts` | **70.0** | 28.2 | **+40.0 ±14.1** |
+| `greedy` | 30.0 | 24.9 | |
 
-32 deals to `mcts`, 6 to `greedy`, 22 split. The reading has gone 71.7 (broken
-harness) → 65.0 (fixed harness, six rotations) → 69.2 (free draws) → 71.7 (setup
-deck), excluding 50% every time since the harness was fixed. It is the one
-result in this file that has survived a bias fix, a map transcription, a
-complete Court and three different schemes for choosing the opening.
+26 deals to `mcts`, 2 to `greedy`, 32 split. The reading has gone 71.7 (broken
+harness) → 65.0 (fixed harness, six rotations) → 69.2 (free draws) → 71.7
+(reconstructed deck) → 70.0 (printed deck), excluding 50% every time since the
+harness was fixed. It is the one result in this file that has survived a bias
+fix, a map transcription, a complete Court, a corrected planet ring and four
+different schemes for choosing the opening — including the one that flattened
+`greedy` vs `mc` to nothing.
 
-`mcts` also holds its lead on mean Power (23.5 vs 22.3), which had been the one
+`mcts` also holds its lead on mean Power (28.2 vs 24.9), which had been the one
 stable difference running the *other* way for most of this project's history.
 
 The five-reading history of this matchup — 50/50, 35/65, 55/45, 41.7/58.3,
@@ -326,6 +337,49 @@ and has not been done.
 The dice correction earlier in this file rests on the same compromised
 instrument and deserves the same caveat.
 
+### The map was missing two edges, and this time it was measured first
+
+The 18 planets are a **ring**, not six separate rows of three. The rulebook says
+a planet "is adjacent to one or both neighbouring planets" and never says the
+neighbour has to be in the same cluster; the engine assumed it did, so all six
+cluster boundaries were walls. On the printed board only **four** of them are —
+the other two are ordinary thin borders, and ships cross them without routing
+through a gate. The joins are 2.3–3.1 and 5.3–6.1.
+
+Reported by someone reading the physical board, then confirmed from the setup
+cards, which draw the same map with no planet art on top of it. Median-combining
+all 12 cards erases their labels and out-of-play shading; scanning circles round
+the centre then sorts the 18 radial borders into three clean tiers — 12 at
+5.0–6.8px, two at 10.0 and 11.1px, four at 20.2–24.5px. The wide four also
+*wander* 3–7× as much in angle, which is what "thick, irregular" means; the two
+middle ones are dead straight. Full method in
+[DATA-GAPS.md](DATA-GAPS.md#the-border-transcription).
+
+**Did it move the ladder?** Barely, and not detectably. Same seed, same 30
+deals, one data change:
+
+| planet ring | `greedy` win % (3p field) | `greedy` vs `mc` |
+|---|---|---|
+| closed (before) | 69.4 ±6.7 | +38.9 ±10.4 |
+| open (after) | 65.6 ±6.9 | +31.1 ±11.7 |
+
+Both moved the same way — the extra route slightly narrows `greedy`'s edge — but
+each reading sits inside the other's interval, so the direction is suggestive
+and nothing more. Part of the reason is that a join only exists if both its
+clusters are in play. On the printed setup deck that is **0.97 of the 2 joins
+per game at 3 players**, 1.30 at 2 and 1.25 at 4 — so on average a third of the
+correction is covered by an out-of-play marker.
+
+(Those two rows were measured against the *reconstructed* setup deck, which was
+still in place at the time. They have not been re-run on the printed one. The
+comparison is internally consistent — both rows share a deck — so the conclusion
+"no detectable movement" stands, but the absolute win rates in it are stale.)
+
+This is the third time an environment change has been checked for ladder impact
+rather than assumed to have none — which is the habit the harness bug was
+supposed to teach. Unlike the dice and the earlier map transcription, this one
+was measured on the fixed harness, before any claim was written down.
+
 ### `random+` *is* an improvement — four null readings were the harness
 
 This file said four times that "never end a turn with actions unspent, never burn
@@ -361,8 +415,8 @@ finished ahead of `greedy` in a multiplayer field, and heads-up it is
 
 | | games | win % | paired difference | separated |
 |---|---|---|---|---|
-| `greedy` vs `mc`, 2 players | 120 | 59.2 / 40.8 | +18.3 ±18.3 | no |
-| `greedy`, `mc`, `random`, 3 players | 180 | 65.0 / 35.0 / 0.0 | +30.0 ±12.3 | yes |
+| `greedy` vs `mc`, 2 players | 120 | 51.7 / 48.3 | +3.3 ±15.4 | no |
+| `greedy`, `mc`, `random`, 3 players | 180 | 57.2 / 42.8 / 0.0 | +14.4 ±13.5 | yes |
 
 The structural reason `mc` should be weaker still holds: it has no tree, so it
 cannot see its own follow-up pips. An Arcs turn is a *sequence* of 1–4 dependent
@@ -370,10 +424,12 @@ actions (build a starport, then build a ship at it; move in, then battle), and
 evaluating the first action of that sequence against a random continuation
 prices the setup at close to nothing.
 
-The head-to-head number has now moved three times for reasons that had nothing
-to do with either agent — the seat/setup confound, then free-draw openings, then
-the setup deck. The field result held still through all of it. Stated as a rule
-of thumb: **in this game the field result is the durable one.**
+The head-to-head number has now moved four times for reasons that had nothing to
+do with either agent — the seat/setup confound, then free-draw openings, then a
+reconstructed setup deck, then the printed one — and it has moved the same way
+every time, from +31.7 to +3.3. The field result held its separation through all
+of it. Stated as a rule of thumb: **in this game the field result is the durable
+one.**
 
 ### Greedy builds more cities; the Power gap did not survive
 
@@ -384,10 +440,10 @@ search has no reason to prefer a position that scores 40 and loses over one that
 scores 24 and wins, and greedy's evaluation is Power-shaped and cannot express
 that difference.
 
-On the paired harness the gap is **gone or slightly reversed**: `mcts` scores 23.5
-to `greedy`'s 22.3 while winning 65.0%. What survives, and has survived every
-version of every measurement here, is the **city count**: `greedy` builds 4.4 to
-`mcts`'s 3.8, and has built more in every single run.
+On the paired harness the gap is **gone or slightly reversed**: `mcts` scores
+28.2 to `greedy`'s 24.9 while winning 70.0%. What survives, and has survived
+every version of every measurement here, is the **city count**: `greedy` builds
+4.4 to `mcts`'s 4.2, and has built more in every single run.
 
 So the mechanism was wrong even though it fit four consecutive datasets. It was
 never a consequence of valuing rollouts on standing; it was some mixture of the

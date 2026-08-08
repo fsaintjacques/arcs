@@ -1,4 +1,5 @@
 /** Side panels: ambitions, the Court row, player boards, hand, and the log. */
+import { useState } from 'react';
 import {
   AMBITIONS,
   ambitionCount,
@@ -96,6 +97,9 @@ export function Players({
   humanSeats: number[];
   actor: number | null;
 }) {
+  // Guild cards sit face-up in their owner's play area, so this reveals nothing
+  // a player at the table could not already read off it.
+  const [openGuild, setOpenGuild] = useState<number | null>(null);
   return (
     <section className="panel">
       <h2>Players</h2>
@@ -126,10 +130,29 @@ export function Players({
             <span className="dim">Captives</span>
             <span className="chip">{p.captives.length}</span>
             <span className="dim">Guild</span>
-            <span className="chip">{p.guildCards.length}</span>
+            {p.guildCards.length > 0 ? (
+              <button
+                type="button"
+                className={`chip chip-button${openGuild === i ? ' chip-open' : ''}`}
+                aria-expanded={openGuild === i}
+                onClick={() => setOpenGuild(openGuild === i ? null : i)}
+                title={`Show the ${p.guildCards.length} Guild card${p.guildCards.length === 1 ? '' : 's'} P${i} holds`}
+              >
+                {p.guildCards.length} {openGuild === i ? '▾' : '▸'}
+              </button>
+            ) : (
+              <span className="chip">0</span>
+            )}
             <span className="dim">Cards</span>
             <span className="chip">{p.hand.length}</span>
           </div>
+          {openGuild === i && (
+            <div className="guild-cards">
+              {p.guildCards.map((card) => (
+                <CourtCardFace key={card} card={card} compact />
+              ))}
+            </div>
+          )}
           {Object.entries(p.outrage).some(([, v]) => v) && (
             <div className="player-row outrage">
               <span className="dim">Outraged</span>

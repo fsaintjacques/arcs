@@ -568,8 +568,11 @@ describe('Elder Broker', () => {
       (d) => d.kind === 'planet' && d.planetType !== null && !f.s.systems[d.id].outOfPlay,
     );
     const type = f.v.systems[system].planetType!;
+    // Clear whatever setup put here: Trade needs the player to *control* the
+    // system, which any third player's starting ships would deny.
+    f.s.systems[system].fresh.fill(0);
+    f.s.systems[system].damaged.fill(0);
     f.s.systems[system].fresh[player] = 3;
-    f.s.systems[system].fresh[rival] = 0;
     f.s.systems[system].buildings = [
       { player: rival, kind: 'city', damaged: false, taxedThisTurn: false, builtThisTurn: false },
     ];
@@ -600,6 +603,8 @@ describe('Elder Broker', () => {
       (d) => d.kind === 'planet' && d.planetType !== null && !f.s.systems[d.id].outOfPlay,
     );
     const type = f.v.systems[system].planetType!;
+    f.s.systems[system].fresh.fill(0);
+    f.s.systems[system].damaged.fill(0);
     f.s.systems[system].fresh[player] = 3;
     f.s.systems[system].buildings = [
       { player: rival, kind: 'city', damaged: false, taxedThisTurn: false, builtThisTurn: false },

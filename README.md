@@ -30,23 +30,24 @@ cards work as printed** — every Guild and Vox ability is dispatched, and
 `POWER_STATUS` in `court.ts` plus a test that asserts nothing is left over keep
 that claim honest.
 
-One thing inside the base game is still reconstructed, because the data lives on
-the physical components rather than in the rulebook:
+Every component whose data the engine needs is now transcribed from the printed
+game rather than reconstructed:
 
-- **Setup cards, and one detail of the map.** The map is transcribed from the
-  printed board — all 18 planet types and building-slot counts, cross-checked
+- **The map** — all 18 planet types and building-slot counts, cross-checked
   against the type distribution (Material 4, Fuel 4, Weapon 4, Relic 3,
-  Psionic 3) — on top of a structurally faithful graph (6 clusters, 1 gate + 3
-  planets, ring adjacency, out-of-play clusters and path markers). What remains
-  reconstructed is which intra-cluster planet pair a thick border splits.
-  Openings come from a **reconstructed setup deck** — 4 cards per player count,
-  as the box has — chosen by scoring 20,000 legal layouts for balance rather
-  than invented by hand. Every stated setup rule is obeyed and asserted per
-  card; the printed 12 remain unknown.
+  Psionic 3), and all 18 borders round the planet ring. Reading the borders
+  found a real error: the planets are a **ring**, so two of the six cluster
+  boundaries are crossings rather than walls (2.3–3.1 and 5.3–6.1), and the
+  engine had none of them.
+- **The Court** — 31 cards, names, suits, raid costs and verbatim text.
+- **The setup cards** — the printed 12, so a game opens on a board the box
+  actually contains. Which player takes which position follows the initiative
+  marker, as the rulebook says, rather than a separate draw.
 
-Every such value is isolated, marked `// DATA-GAP:` in code, and catalogued in
-[docs/DATA-GAPS.md](docs/DATA-GAPS.md) with the reconstruction used and how to
-correct it. None of them affect the shape of the engine.
+Two reconstructed values remain, both marked `// DATA-GAP:` in code and
+catalogued in [docs/DATA-GAPS.md](docs/DATA-GAPS.md) with how to correct them:
+two of the three ambition markers' reverse sides, and which player-board city
+slot uncovers which reward. Neither affects the shape of the engine.
 
 ## The interface
 
@@ -161,15 +162,12 @@ parameters.
 Three details that turned out to matter more than the search itself:
 
 - **Cascade settling.** A one-step eval scores `battle` *before* the dice exist,
-  so it never fights: in a 2-player batch, battle was offered 163 times and
-  taken 0. Playing the cascade out before scoring took that to 104 of 164 —
-  worth more than any weight tuning so far.
+  so it never fights. Playing the cascade out before scoring is what makes the
+  action reachable at all.
 - **Exact die faces, not matching odds.** The first version inferred the assault
   and raid faces from published probabilities. The inference matched every quoted
   statistic and still had the wrong symbols sharing faces — the joint
-  distribution was wrong where every marginal was right. (It was credited with
-  moving the ladder too, but that was measured on the harness described under
-  Results, so the size of the effect is unknown.)
+  distribution was wrong where every marginal was right.
 - **max^n backup, not minimax.** With 3–4 players, backing up a single scalar
   and assuming the opponents minimise your score models a coalition that is not
   in the game. Each node carries a value per seat and selection maximises the
@@ -189,7 +187,7 @@ npm run sim -- --help
 | `--agents` | `greedy,greedy,greedy` | one per seat; 2–4 of them sets the player count |
 | `--games` | 100 | batch size |
 | `--seed` | 1 | games are fully reproducible from this |
-| `--setup` | 0 | seeds the opening: which setup card, and who takes which position |
+| `--setup` | 0 | seeds the opening: which of the four setup cards is drawn |
 | `--free-setup` | off | invent a fresh legal opening per deal instead of drawing a card |
 | `--opts` | — | JSON passed to every agent |
 | `--no-rotate` | off | keep seats fixed instead of permuting |
@@ -203,88 +201,17 @@ whether the interval excludes zero.
 
 **Deals are paired and seats are permuted**, and both are needed. Permuting
 alone leaves the agents' cyclic order fixed, and in a lead-and-follow game
-sitting immediately after a weak player is worth real points — two *identical*
-greedy agents posted 78% / 22% under rotation. Pairing alone would leave seat
-advantage in. Together they make the deal and the seat controlled variables:
-identical agents come out exactly 50/50, with zero variance, and a test asserts
-it.
+sitting immediately after a weak player is worth real points; pairing alone
+would leave seat advantage in. Together they make the deal and the seat
+controlled variables — identical agents come out exactly 50/50, with zero
+variance, and a test asserts it.
 
-## Results
+## Measurements
 
-All from the **paired** harness playing the **setup-card deck** — draw one of the
-four cards for your player count, take positions on it at random, every deal
-played from every seating. Numbers published before these fixes are not
-comparable; see below.
-
-Two players:
-
-| matchup | games | deals | win % | paired difference | separated |
-|---|---|---|---|---|---|
-| `greedy` vs `random+` | 120 | 60 | **100.0** / 0.0 | +100.0 ±0.0 | yes |
-| `mcts` vs `greedy` | 120 | 60 | **71.7** / 28.3 | +43.3 ±17.0 | yes |
-| `random+` vs `random` | 2000 | 1000 | **60.5** / 39.6 | +20.9 ±4.2 | yes |
-| `greedy` vs `mc` | 120 | 60 | 59.2 / 40.8 | +18.3 ±18.3 | **no** |
-
-Three players:
-
-| field | games | deals | win % |
-|---|---|---|---|
-| `greedy`, `mc`, `random` | 180 | 30 | **65.0** / 35.0 / 0.0 |
-
-`mcts` > `greedy` > `mc` > `random+` > `random`, with `greedy` vs `mc` the one
-rung not settled head-to-head — though `greedy` takes the 3-player field.
-
-**The opening is a variable.** Setups follow the game: shuffle the four setup
-cards for your player count, draw one, and take positions on it — with *which*
-position each player gets, and turn order, both randomised, since the card
-decides neither. The same matchup across three ways of choosing the opening,
-same agents throughout:
-
-| openings | `greedy` vs `mc` | separated |
-|---|---|---|
-| 6 fixed rotations (originally) | +31.7 ±15.1 | yes |
-| 4 setup cards (as played) | +18.3 ±18.3 | no |
-| ~3000 free draws (`--free-setup`) | +13.3 ±17.1 | no |
-
-Some of that original edge was an edge *on those six boards*. The 3-player field
-held its separation throughout, which is the recurring pattern here: the
-multiplayer result is the durable one.
-
-**The measurement was broken, and finding that out was worth more than any result
-it produced.** The batch runner advanced the seed *and* the setup index on every
-game while cycling seatings through the `n!` permutations. At two players that
-aliases seating to setup parity exactly — one agent got every even setup, the
-other every odd one — so the permutations cancelled nothing. Two **identical**
-greedy agents, eight replications:
-
-| scheme | mean win-share gap | sd |
-|---|---|---|
-| paired (now) | **0.00** | 0.00 |
-| unpaired (before) | **−13.75** | 12.46 |
-
-An agent losing to a copy of itself by 14 points is larger than most effects this
-project reported. Fixing it forced two corrections: `random+` really does beat
-`random` (called "no improvement" four times), and `greedy` beats `mc` in both
-player counts, undoing a "flip" previously credited to the map transcription. The
-`mcts` result survived, at 65.0 rather than 71.7.
-
-Worth noting what pairing did *not* do: the spread is unchanged (sd 9.49 either
-way). Common random numbers only reduce variance when the agents' play stays
-correlated, and here it diverges within a few decisions. The win was removing a
-confound, not tightening an interval.
-
-**A second measurement bug, in the search itself.** `determinize()` forgot cards
-played face up in earlier rounds of the chapter, so **65% of sampled worlds
-contained a card the observer had watched being played** — 1.56 apiece. Search
-agents were spending budget on impossible worlds. Now zero.
-
-**Finishing the Court exposed a hole in the bots, not the engine.** Three
-abilities are offered constantly and never once taken — Farseers' Prelude (998
-offers in 40 games), attaching a Union (119), Execute (15). `eval.ts` has no term
-for hand quality, so trading cards for better cards evaluates as zero.
-
-See [docs/FINDINGS.md](docs/FINDINGS.md) for the evidence, the negative results,
-and a belief model that measured as worthless and why.
+The bots are a scaffold for engine work, not the point of it — they exist to
+drive every rule hard enough to find the places it is wrong. Results, negative
+results and the methodology traps that cost real time live in
+[docs/FINDINGS.md](docs/FINDINGS.md).
 
 ## Layout
 

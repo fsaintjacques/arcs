@@ -6,16 +6,13 @@
  *
  *   - each gate touches its cluster's 3 planets and its 2 neighbouring gates
  *     (the gates form a ring, cluster 1..6 clockwise);
- *   - each planet touches its gate and one or both neighbouring planets.
+ *   - each planet touches its gate and one or both neighbouring planets — and
+ *     a planet's neighbours run round the whole 18-planet ring, so two of them
+ *     sit in the *next* cluster. See `JOINED_BOUNDARIES`.
  *
- * Planet types and building-slot counts below are transcribed from the board
- * illustration on p4 of the high-resolution rulebook — see docs/DATA-GAPS.md §2
- * for the extraction recipe and the badge legend.
- *
- * DATA-GAP (residual): which intra-cluster planet pair is separated by a thick
- * border is still modelled uniformly as a path (planet 1-2 and 2-3 adjacent,
- * 1-3 not), which satisfies "adjacent to one or both neighbouring planets" (p6)
- * but is not read off the board per cluster.
+ * Planet types, building-slot counts and the border reading below are all
+ * transcribed from printed components — see docs/DATA-GAPS.md for the
+ * extraction recipe and the badge legend.
  */
 import type { ResourceType, SystemDef } from './types';
 
@@ -69,6 +66,28 @@ const CLUSTERS: PlanetDef[][] = [
   ],
 ];
 
+/**
+ * The 18 planets form a ring, so each cluster boundary is a border between two
+ * planets like any other: cluster `c`'s last planet against cluster `c+1`'s
+ * first. Four of the six boundaries carry the thick, irregular border that
+ * means "not adjacent" (p6). These two carry a thin one, so ships cross there
+ * without going through a gate:
+ *
+ *   - printed cluster **2.3 – 3.1**
+ *   - printed cluster **5.3 – 6.1**
+ *
+ * Read off the setup cards, which print the map schematically with no planet
+ * art in the way. The 12 cards were combined pixel-wise by median — that erases
+ * each card's own labels and out-of-play shading and leaves the bare border
+ * drawing — and the borders measured by scanning circles around the map centre.
+ * The three tiers separate cleanly at r=220px: the 12 intra-cluster borders run
+ * 5.0-6.8px wide, these two run 10.0 and 11.1px, and the four irregular ones run
+ * 20.2-24.5px while wandering 3-7x as much in angle. The two listed here are
+ * dead straight (0.11 and 0.34 degrees of wander), so they are heavier-drawn
+ * cluster outlines, not the hand-drawn irregular border.
+ */
+const JOINED_BOUNDARIES = [1, 4];
+
 export function gateId(cluster: number): number {
   return cluster * SYSTEMS_PER_CLUSTER;
 }
@@ -105,6 +124,11 @@ export function buildSystems(): SystemDef[] {
       const neighbours = [gateId(c)];
       if (p > 0) neighbours.push(planetId(c, p - 1));
       if (p < 2) neighbours.push(planetId(c, p + 1));
+      // The ring closes across two of the six cluster boundaries.
+      if (p === 2 && JOINED_BOUNDARIES.includes(c)) neighbours.push(planetId((c + 1) % CLUSTER_COUNT, 0));
+      if (p === 0 && JOINED_BOUNDARIES.includes((c + CLUSTER_COUNT - 1) % CLUSTER_COUNT)) {
+        neighbours.push(planetId((c + CLUSTER_COUNT - 1) % CLUSTER_COUNT, 2));
+      }
       systems.push({
         id: planetId(c, p),
         cluster: c,
