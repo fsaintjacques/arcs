@@ -3,11 +3,9 @@ import { describe, expect, it } from 'vitest';
 import {
   actionCard,
   ambitionCount,
-  applyActionMut,
   AMBITION_MARKERS,
   COURT_DECK,
   controlOf,
-  getPending,
   makeVariant,
   mulberry32,
   newGame,

@@ -349,7 +349,29 @@ chapter 5. Otherwise advance the chapter marker.
 Shuffle all action cards; every player draws 6. Cards not in hands go to the
 discard pile. 2 players: the player without initiative may mulligan once.
 
-## 11. Fine print used by the engine (p22)
+## 11. Engine rulings
+
+Places where the rulebook leaves a choice the engine resolves itself rather
+than surfacing as its own decision node. Each is a deliberate, documented
+simplification, not a rules reading.
+
+- **Ransacking the Court** (p16) says "Secure *any* card that has any number of
+  the defender's agents". The engine picks the card holding the most of the
+  defender's agents, breaking ties leftmost.
+- **Paying for an action** when both a card pip and a Prelude resource could
+  cover it: the engine spends the resource grant first, most-restrictive grant
+  first. Pips are more flexible, so holding them back is almost always right.
+- **Catapult moves** may not re-enter a system the same catapult has already
+  passed through. The rulebook sets no such limit, but without one a catapult
+  can shuttle between two uncontrolled gates forever; revisiting can only undo
+  progress, so nothing legal is lost.
+- **Hits are assigned one at a time.** The rulebook lets the attacker place a
+  whole volley at once; the engine asks per hit, which is the same set of
+  outcomes with an enumerable action space.
+- **Resource slot rearranging** (p17) is automatic: gained resources fill the
+  leftmost empty open slot, and a returning city discards from the right.
+
+## 12. Fine print used by the engine (p22)
 
 - **Control**: you control a system and its contents if you have **more fresh
   ships** there than each Rival. Ties mean nobody controls it.
