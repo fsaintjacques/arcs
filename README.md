@@ -45,6 +45,30 @@ Every such value is isolated, marked `// DATA-GAP:` in code, and catalogued in
 [docs/DATA-GAPS.md](docs/DATA-GAPS.md) with the reconstruction used and how to
 correct it. None of them affect the shape of the engine.
 
+## The interface
+
+The UI renders the real components rather than abstractions of them.
+
+- **The board** is the printed wheel: a dark void carrying the wordmark, a ring
+  of six numbered gates around it (1 at the top, 2–6 clockwise), and six tinted
+  wedges holding their clusters' planets. Each planet shows its **building slots
+  as outlined triangles** — the printed notation — filled in with the owner's
+  colour once built, and carries its resource badge. Geometry is derived from
+  the engine's graph, so replacing the map data moves the board with it.
+- **Action cards** carry the suit as ink: the numeral and its pips top-left, the
+  suit and its actions set vertically up the spine, art to the right, and the
+  ambition on a tab at the top. When an ambition is declared, the **zero marker**
+  covers the number exactly as the cardboard one does.
+- **Court cards** come in the two printed forms — a Guild card with its
+  raid-cost keys on a banner, its suit rosette, name plate and rules text; a Vox
+  card with the title at the top and no rosette — both footed `BC | GUILD | nn`.
+
+The artwork is **original**: these are SVG and CSS renderings of the printed
+*layout*, palette and symbols, not scans. Leder Games' illustrations are their
+copyright and this repository is public, so the card art and planet art are
+stylised stand-ins. Suit colours are sampled from the rulebook where a sample
+was available and flagged in `Glyphs.tsx` where they are matched by eye.
+
 ## The engine as a library
 
 The game is modelled as an explicit sequential decision process, so any
@@ -264,6 +288,9 @@ src/engine/            pure engine, no dependencies
 src/agents/            bots, the evaluation function, rollout plumbing
 src/sim/               paired seeded runner, tournament stats, CLI
 src/ui/                React app (Play / Watch / Simulate)
+  components/Board.tsx   the wheel: void, gate ring, cluster wedges, planets
+  components/Cards.tsx   action / Guild / Vox card faces
+  components/Glyphs.tsx  resource, key and pip symbols; the palette
 tools/                 calibration and offline-metric scripts
 tests/                 vitest suite
 ```

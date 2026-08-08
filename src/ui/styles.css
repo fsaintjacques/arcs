@@ -130,6 +130,19 @@ button.primary:disabled {
   align-items: start;
 }
 
+/* The action list is what you read on every turn — keep it in view while the
+   left column scrolls past. */
+.right > .actions-panel {
+  position: sticky;
+  top: 10px;
+  z-index: 3;
+}
+
+.board {
+  max-height: 76vh;
+  margin: 0 auto 14px;
+}
+
 @media (max-width: 1100px) {
   .game {
     grid-template-columns: 1fr;
@@ -181,64 +194,90 @@ input {
 .board {
   width: 100%;
   height: auto;
-  background: radial-gradient(circle at 50% 45%, #141a26 0%, #0b0e14 72%);
+  background:
+    radial-gradient(circle at 50% 48%, #1a1622 0%, #0c0a10 62%, #08070b 100%);
   border: 1px solid var(--line);
   border-radius: 10px;
   display: block;
 }
 
-.board-core {
-  fill: #10141d;
-  stroke: var(--line);
-}
-
-.board-core-label {
-  fill: #39445c;
+.board-wordmark {
+  fill: #cfc4a8;
   text-anchor: middle;
-  font-size: 17px;
-  letter-spacing: 0.32em;
-  font-weight: 700;
+  font-size: 26px;
+  letter-spacing: 0.30em;
+  font-weight: 600;
+  font-family: Georgia, 'Times New Roman', serif;
+  opacity: 0.92;
 }
 
 .edge {
-  stroke: #273044;
+  stroke: rgba(190, 205, 235, 0.13);
   stroke-width: 2;
 }
 
 .edge-path {
-  stroke: #46577a;
-  stroke-dasharray: 7 5;
-  stroke-width: 3;
+  stroke: rgba(190, 205, 235, 0.3);
+  stroke-dasharray: 7 6;
+  stroke-width: 2.5;
 }
 
 .system {
   cursor: pointer;
 }
 
-.system-shape {
-  stroke: #0b0e14;
-  stroke-width: 2;
+.gate-shape {
+  stroke: #4a4560;
+  stroke-width: 1.4;
+  transition: stroke 0.12s;
+}
+
+.planet-shape {
+  transition: stroke-width 0.12s;
+}
+
+.gate-number {
+  fill: #efe7d2;
+  text-anchor: middle;
+  font-size: 30px;
+  font-weight: 600;
+  font-family: Georgia, 'Times New Roman', serif;
+  pointer-events: none;
+  opacity: 0.85;
 }
 
 .system-highlight {
   stroke: var(--accent);
-  stroke-width: 3;
+  stroke-width: 3.5;
 }
 
-.system-selected .system-shape {
+.system-selected .planet-shape,
+.system-selected .gate-shape {
   stroke: #fff;
   stroke-width: 3;
 }
 
 .system-label {
-  fill: var(--dim);
+  fill: rgba(226, 232, 245, 0.55);
   font-size: 11px;
   text-anchor: middle;
+  letter-spacing: 0.06em;
+  pointer-events: none;
 }
 
 .ship-count {
-  font-size: 12px;
+  font-size: 13px;
   font-weight: 700;
+  text-anchor: middle;
+  paint-order: stroke;
+  stroke: #08070b;
+  stroke-width: 3px;
+  pointer-events: none;
+}
+
+.ship-damaged {
+  opacity: 0.6;
+  font-size: 11px;
 }
 
 /* --- actions --- */
@@ -344,26 +383,8 @@ td.leading {
 
 .court {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(96px, 1fr));
-  gap: 8px;
-}
-
-.court-card {
-  background: var(--panel-2);
-  border: 1px solid var(--line);
-  border-radius: 7px;
-  padding: 8px;
-}
-
-.court-name {
-  font-size: 12px;
-  font-weight: 600;
-}
-
-.court-meta {
-  font-size: 11px;
-  color: var(--dim);
-  margin-top: 2px;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 10px;
 }
 
 .agents {
@@ -458,49 +479,7 @@ td.leading {
 .hand {
   display: flex;
   flex-wrap: wrap;
-  gap: 7px;
-}
-
-.card {
-  width: 68px;
-  border-radius: 7px;
-  border: 1px solid var(--line);
-  padding: 7px;
-  background: var(--panel-2);
-  text-align: center;
-}
-
-.card-number {
-  font-size: 20px;
-  font-weight: 700;
-  line-height: 1.1;
-}
-
-.card-suit,
-.card-ambition {
-  font-size: 10px;
-  color: var(--dim);
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-}
-
-.card-pips {
-  font-size: 9px;
-  letter-spacing: 2px;
-  color: var(--accent);
-}
-
-.suit-administration {
-  border-color: #b9963c;
-}
-.suit-aggression {
-  border-color: #b34a3c;
-}
-.suit-construction {
-  border-color: #4f9a58;
-}
-.suit-mobilization {
-  border-color: #4076b5;
+  gap: 9px;
 }
 
 /* --- log, standings, sim --- */
@@ -595,4 +574,352 @@ footer {
   padding-top: 12px;
   border-top: 1px solid var(--line);
   font-size: 12px;
+}
+
+/* ---------------------------------------------------------------------------
+   Card faces, following the printed cards.
+
+   Action cards are white with the suit as ink; Court cards are a gold frame
+   around a cream face. The artwork is stylised — see Glyphs.tsx.
+   --------------------------------------------------------------------------- */
+
+.action-card {
+  --suit: #888;
+  width: 92px;
+  aspect-ratio: 5 / 7;
+  background: #fbfaf7;
+  border: 1px solid #2a2a2a;
+  border-radius: 7px;
+  position: relative;
+  overflow: hidden;
+  box-shadow: 0 2px 5px rgba(0, 0, 0, 0.45);
+  flex: none;
+}
+
+.action-card-sm {
+  width: 58px;
+  border-radius: 5px;
+}
+
+.ac-ambition {
+  position: absolute;
+  top: 0;
+  left: 50%;
+  transform: translateX(-50%);
+  font-size: 8px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  padding: 1px 6px 2px;
+  border: 1px solid;
+  border-top: 0;
+  border-radius: 0 0 5px 5px;
+  background: #fbfaf7;
+  z-index: 2;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.ac-body {
+  display: flex;
+  height: 100%;
+}
+
+.ac-spine {
+  width: 38%;
+  padding: 5px 2px 5px 5px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+}
+
+.ac-number {
+  font-family: Georgia, 'Times New Roman', serif;
+  font-size: 22px;
+  line-height: 0.9;
+  font-weight: 700;
+  color: var(--suit);
+}
+
+.action-card-sm .ac-number {
+  font-size: 17px;
+}
+
+.ac-zero {
+  background: #17161a;
+  color: #fbfaf7;
+  border-radius: 3px;
+  padding: 2px 4px;
+  display: flex;
+  flex-direction: column;
+  line-height: 1;
+}
+
+.ac-zero strong {
+  font-family: Georgia, serif;
+  font-size: 17px;
+}
+
+.ac-zero span {
+  font-size: 5px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  margin-top: 1px;
+}
+
+.ac-pips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0;
+  max-width: 24px;
+  line-height: 0;
+}
+
+/* The suit and its actions run bottom-to-top up the card's spine. */
+.ac-suit {
+  margin-top: auto;
+  writing-mode: vertical-rl;
+  transform: rotate(180deg);
+  display: flex;
+  /* In vertical writing mode `row` runs *down* the card, so the name and its
+     actions would queue up for the same height and both clip. `column` puts
+     them side by side as two parallel vertical lines, which is the printed
+     layout anyway. */
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 1px;
+  overflow: visible;
+  max-width: 100%;
+}
+
+.ac-suit-name {
+  font-size: 7px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: var(--suit);
+  white-space: nowrap;
+}
+
+.ac-suit-actions {
+  font-size: 5.5px;
+  color: var(--suit);
+  opacity: 0.8;
+  font-style: italic;
+  white-space: nowrap;
+  letter-spacing: 0.02em;
+}
+
+.ac-art {
+  width: 62%;
+  height: 100%;
+  display: block;
+}
+
+/* --- Court cards --- */
+
+.court-card {
+  position: relative;
+  background: linear-gradient(160deg, #d4ad46 0%, #b8902f 100%);
+  border: 1px solid #6d5417;
+  border-radius: 8px;
+  padding: 7px;
+  display: flex;
+  flex-direction: column;
+  min-height: 190px;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.45);
+}
+
+.court-compact {
+  min-height: 168px;
+  font-size: 11px;
+}
+
+.cc-keys {
+  position: absolute;
+  top: 0;
+  left: 9px;
+  background: #e8801f;
+  padding: 4px 4px 6px;
+  display: flex;
+  gap: 1px;
+  clip-path: polygon(0 0, 100% 0, 100% 100%, 50% 82%, 0 100%);
+  z-index: 2;
+}
+
+.cc-medallion {
+  position: absolute;
+  top: 4px;
+  right: 5px;
+  z-index: 2;
+}
+
+.cc-medallion svg {
+  width: 100%;
+  height: 100%;
+  display: block;
+  filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.4));
+}
+
+.cc-medallion-glyph {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+}
+
+.cc-art {
+  height: 54px;
+  margin: 0 0 6px;
+  border-radius: 26px 26px 3px 3px;
+  background:
+    repeating-linear-gradient(115deg, rgba(0, 0, 0, 0.22) 0 3px, transparent 3px 7px),
+    linear-gradient(180deg, #8c4a2a 0%, #43301f 100%);
+  border: 1px solid rgba(0, 0, 0, 0.35);
+}
+
+.cc-art-vox {
+  margin: 6px 0 0;
+  flex: 1;
+  min-height: 42px;
+  border-radius: 3px;
+  background:
+    repeating-linear-gradient(150deg, rgba(140, 74, 42, 0.3) 0 2px, transparent 2px 6px),
+    #efe6d4;
+  border-color: rgba(140, 74, 42, 0.35);
+}
+
+.court-vox .cc-art {
+  border-radius: 3px;
+}
+
+.cc-name {
+  margin: 0;
+  font-family: Georgia, 'Times New Roman', serif;
+  font-size: 13px;
+  font-variant: small-caps;
+  letter-spacing: 0.02em;
+  text-align: center;
+  color: #17140d;
+  background: #f4ecd8;
+  padding: 3px 4px 1px;
+  border-radius: 3px 3px 0 0;
+}
+
+.cc-name-top {
+  border-radius: 3px;
+  margin-top: 2px;
+}
+
+.cc-rule {
+  height: 3px;
+  background: #f4ecd8;
+  position: relative;
+}
+
+.cc-rule::before {
+  content: '';
+  position: absolute;
+  left: 8px;
+  right: 8px;
+  top: 1px;
+  border-top: 1px solid #9a7a2c;
+}
+
+.cc-text {
+  margin: 0;
+  background: #f4ecd8;
+  color: #241f16;
+  font-size: 10.5px;
+  line-height: 1.32;
+  padding: 4px 6px 6px;
+  border-radius: 0 0 3px 3px;
+  flex: 1;
+}
+
+.court-vox .cc-text {
+  flex: none;
+  border-radius: 0 0 3px 3px;
+}
+
+.cc-foot {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-top: 5px;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  color: #3a2d0d;
+}
+
+.cc-kind {
+  background: #8a6a1c;
+  color: #f6efdc;
+  padding: 1px 10px;
+  border-radius: 2px;
+}
+
+.cc-agents {
+  position: absolute;
+  bottom: 22px;
+  right: 6px;
+  display: flex;
+  gap: 3px;
+}
+
+.agent-pip {
+  width: 15px;
+  height: 15px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  font-size: 9px;
+  font-weight: 700;
+  color: #fff;
+  border: 1px solid rgba(0, 0, 0, 0.5);
+}
+
+.agent-pip.p0 { background: #e05c4a; }
+.agent-pip.p1 { background: #4a9ee0; }
+.agent-pip.p2 { background: #7bc06a; }
+.agent-pip.p3 { background: #e0b84a; }
+
+/* --- the trick: real cards, face down where the rules hide them --- */
+
+.played {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin: 8px 0 4px;
+}
+
+.play {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+}
+
+.play figcaption {
+  font-size: 10px;
+  font-weight: 700;
+}
+
+.play-lead .action-card,
+.play-lead .card-back {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.card-back {
+  width: 58px;
+  aspect-ratio: 5 / 7;
+  border-radius: 5px;
+  border: 1px solid #2a2a2a;
+  background:
+    radial-gradient(circle at 30% 28%, rgba(180, 200, 230, 0.28) 0 5px, transparent 6px),
+    radial-gradient(circle at 68% 62%, rgba(180, 200, 230, 0.22) 0 7px, transparent 8px),
+    linear-gradient(150deg, #1d2637 0%, #131a27 100%);
 }
