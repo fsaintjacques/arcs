@@ -270,21 +270,21 @@ impl PlayerState {
         false
     }
 
-    /// Discard resources sitting in slots that a returning city has covered.
-    /// (`compactResources` in playerBoard.ts.)
-    pub fn compact_resources(&mut self) {
+    /// Discard resources sitting in slots that a returning city has covered,
+    /// returning the discarded tokens. (`compactResources` in playerBoard.ts
+    /// — which silently deletes the surplus tokens; the Rust port hands them
+    /// back so the caller can return them to the supply, since "you must
+    /// discard resources you cannot hold" (p17) discards *tokens*, and
+    /// tokens never leave the game.)
+    pub fn compact_resources(&mut self) -> InlineVec<ResourceType, MAX_RESOURCE_SLOTS> {
         let open = self.open_resource_slots();
-        let held: InlineVec<ResourceType, MAX_RESOURCE_SLOTS> = self
-            .resources
-            .iter()
-            .flatten()
-            .copied()
-            .take(open)
-            .collect();
+        let all: InlineVec<ResourceType, MAX_RESOURCE_SLOTS> =
+            self.resources.iter().flatten().copied().collect();
         self.resources = [None; MAX_RESOURCE_SLOTS];
-        for (i, r) in held.iter().enumerate() {
+        for (i, r) in all.iter().take(open).enumerate() {
             self.resources[i] = Some(*r);
         }
+        all.iter().skip(open).copied().collect()
     }
 
     /// All held resources, in slot order. (`heldResources` in playerBoard.ts.)
@@ -647,11 +647,20 @@ impl GameState {
     }
 
     /// Return a resource token to the general supply — or onto the Cartel
-    /// card for its type, once one is in play (R3; no Cartel exists before
-    /// Guild cards can be held).
+    /// card for its type, once one is in play (R3; the Cartel passive is not
+    /// active before then).
     pub fn return_to_supply(&mut self, r: ResourceType) {
         // R3: route to `cartel[r]` when a Cartel card for `r` is held.
         self.supply[r.as_index()] += 1;
+    }
+
+    /// Compact a player's resources after a city returns to their board,
+    /// sending the surplus tokens back to the supply.
+    pub fn compact_resources_of(&mut self, player: Player) {
+        let dropped = self.player_mut(player).compact_resources();
+        for &r in dropped.iter() {
+            self.return_to_supply(r);
+        }
     }
 
     /// All in-play systems adjacent to `system`.

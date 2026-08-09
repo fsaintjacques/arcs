@@ -87,6 +87,29 @@ pub fn end_all_turns(f: &mut Fixture) {
     }
 }
 
+/// First action matching the predicate (`find` in helpers.ts).
+pub fn find(list: &[Action], pred: impl Fn(&Action) -> bool) -> Action {
+    *list
+        .iter()
+        .find(|a| pred(a))
+        .expect("no action matching the predicate")
+}
+
+/// Put the current actor on turn with one named card, Prelude skipped
+/// (`turnWith` in rules.test.ts).
+pub fn turn_with(f: &mut Fixture, suit: u8, number: u8) -> Player {
+    let player = actor(f);
+    set_hand(f, player, &[card_id(suit, number)]);
+    apply(
+        f,
+        Action::Lead {
+            card: card_id(suit, number),
+        },
+    );
+    apply(f, Action::BeginActions);
+    player
+}
+
 /// Follow modes offered for one card, as sorted single letters.
 pub fn modes_for(list: &[Action], card: ActionCardId) -> Vec<char> {
     let mut out: Vec<char> = list

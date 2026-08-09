@@ -93,9 +93,10 @@ fn copy_is_a_full_snapshot() {
 }
 
 // TS: "conserves pieces: ships on the map plus supply plus Trophies equals
-// 15" (no battles exist yet, so the trophy term is zero — R2 restores it).
+// 15"
 #[test]
 fn conserves_ships() {
+    use arcs_engine::state::TrophyKind;
     let v = make_variant(3, 0, SetupMode::Deck);
     let mut rng = SplitMix64::new(11);
     let mut s = new_game(&v, &mut rng, 0, SetupMode::Deck);
@@ -106,7 +107,12 @@ fn conserves_ships() {
             .iter()
             .map(|sys| sys.fresh[p] + sys.damaged[p])
             .sum();
-        assert_eq!(on_map + s.player_states[p].ships_supply, 15);
+        let as_trophies: u8 = s
+            .player_states
+            .iter()
+            .map(|other| other.trophies[p][TrophyKind::Ship.as_index()])
+            .sum();
+        assert_eq!(on_map + s.player_states[p].ships_supply + as_trophies, 15);
     }
 }
 
@@ -172,42 +178,40 @@ fn records_a_decline_on_copy_and_pivot() {
     assert_eq!(d.number, lead_def.number);
 }
 
-// Follow-up invariants specific to the R1 skeleton: a full random game
-// never wedges a phase the milestone does not implement.
+// TS: "terminates under a 'never pass, never idle' policy too" —
+// adversarial for termination: this policy prefers actions that keep the
+// turn alive, which is exactly what a catapult loop would exploit.
 #[test]
-fn r1_games_stay_inside_r1_phases() {
-    for seed in 0..8u64 {
-        let v = make_variant(3, seed, SetupMode::Deck);
-        let mut rng = SplitMix64::new(seed + 500);
-        let mut s = new_game(&v, &mut rng, seed, SetupMode::Deck);
-        let mut acts = Vec::new();
-        for _ in 0..100_000 {
-            assert!(
-                matches!(
-                    s.phase,
-                    Phase::Deal
-                        | Phase::Mulligan
-                        | Phase::Play
-                        | Phase::Prelude
-                        | Phase::Actions
-                        | Phase::Reinforce
-                        | Phase::Over
-                ),
-                "reached {:?}",
-                s.phase
-            );
-            match get_pending(&s, &v) {
-                Pending::Over => break,
-                Pending::Chance => {
-                    resolve_chance_mut(&mut s, &v, &mut rng).unwrap();
-                }
-                Pending::Decision { .. } => {
-                    legal_actions(&s, &v, &mut acts);
-                    let a = acts[rng.gen_range(acts.len())];
-                    apply_action_mut(&mut s, &v, a).unwrap();
+fn terminates_under_a_never_pass_never_idle_policy() {
+    for players in 2..=4u8 {
+        for seed in 0..8u64 {
+            let v = make_variant(players, seed, SetupMode::Deck);
+            let mut rng = SplitMix64::new(seed + 100);
+            let mut s = new_game(&v, &mut rng, seed, SetupMode::Deck);
+            let mut acts = Vec::new();
+            let mut busy = Vec::new();
+            for _ in 0..100_000 {
+                match get_pending(&s, &v) {
+                    Pending::Over => break,
+                    Pending::Chance => {
+                        resolve_chance_mut(&mut s, &v, &mut rng).unwrap();
+                    }
+                    Pending::Decision { .. } => {
+                        legal_actions(&s, &v, &mut acts);
+                        busy.clear();
+                        busy.extend(acts.iter().copied().filter(|a| {
+                            !matches!(
+                                a,
+                                Action::EndTurn | Action::PassInitiative | Action::CatapultStop
+                            )
+                        }));
+                        let pool = if busy.is_empty() { &acts } else { &busy };
+                        let a = pool[rng.gen_range(pool.len())];
+                        apply_action_mut(&mut s, &v, a).unwrap();
+                    }
                 }
             }
+            assert_eq!(s.phase, Phase::Over, "{players}p seed {seed} did not end");
         }
-        assert_eq!(s.phase, Phase::Over);
     }
 }
