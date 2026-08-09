@@ -34,8 +34,8 @@ describe('terminalVector', () => {
 describe('runGauntlet', () => {
   // One paired block (6 games) per anchor: a smoke test of the plumbing and
   // the sign, not a strength measurement.
-  it('reads a decisive matchup the right way', () => {
-    const report = runGauntlet({ name: 'greedy' }, [{ name: 'random' }], {
+  it('reads a decisive matchup the right way', async () => {
+    const report = await runGauntlet({ name: 'greedy' }, [{ name: 'random' }], {
       gamesPerAnchor: 6,
       seed: 3,
     });
@@ -47,8 +47,8 @@ describe('runGauntlet', () => {
     expect(report.passed).toBe(true);
   });
 
-  it('fails a candidate that blows the thinking budget', () => {
-    const report = runGauntlet({ name: 'greedy' }, [{ name: 'random' }], {
+  it('fails a candidate that blows the thinking budget', async () => {
+    const report = await runGauntlet({ name: 'greedy' }, [{ name: 'random' }], {
       gamesPerAnchor: 6,
       seed: 3,
       budgetMs: 0,
