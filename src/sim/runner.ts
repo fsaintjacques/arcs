@@ -105,6 +105,13 @@ export interface SimOptions extends Omit<PlayOptions, 'seed'> {
    * every agent meets the identical game in every seat. See `simulate`.
    */
   paired?: boolean;
+  /**
+   * Run only these block indices instead of `0..ceil(games/blockSize)-1`.
+   * A block's games depend on nothing but its index, so a batch can be
+   * partitioned across workers and reassembled without changing a single
+   * seed or seating — the parallel runner leans on this.
+   */
+  blocks?: number[];
   onGame?: (result: GameResult, index: number, seating: number[], block: number) => void;
 }
 
@@ -158,16 +165,17 @@ export function simulate(agents: Agent[], opts: SimOptions): SimResult {
   const rotate = opts.rotateSeats !== false;
   const paired = rotate && opts.paired !== false;
   const blockSize = paired ? perms.length : 1;
-  const blocks = Math.ceil(opts.games / blockSize);
+  const blockCount = Math.ceil(opts.games / blockSize);
+  const blockList = opts.blocks ?? Array.from({ length: blockCount }, (_, b) => b);
 
-  let i = 0;
-  for (let block = 0; block < blocks; block++) {
-    // One deal per block when paired; one per game otherwise.
-    const dealIndex = paired ? block : i;
-    const seed = (opts.seed + dealIndex * 2654435761) >>> 0;
-    const setupIndex = (opts.setupIndex ?? 0) + dealIndex;
+  for (const block of blockList) {
+    // One deal per block when paired; blocks are single games otherwise, so
+    // the block index is the deal index either way.
+    const seed = (opts.seed + block * 2654435761) >>> 0;
+    const setupIndex = (opts.setupIndex ?? 0) + block;
 
-    for (let k = 0; k < blockSize; k++, i++) {
+    for (let k = 0; k < blockSize; k++) {
+      const i = block * blockSize + k;
       const seating = rotate
         ? perms[(paired ? k : i) % perms.length]
         : Array.from({ length: n }, (_, seat) => seat);

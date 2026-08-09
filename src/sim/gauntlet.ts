@@ -14,14 +14,11 @@
  */
 import { makeAgent, type Agent } from '../agents';
 import type { SetupMode } from '../engine';
-import { simulate } from './runner';
+import { simulateParallel, type AgentSpec } from './parallel';
+import { simulate, type SimResult } from './runner';
 import { pairedStats, type PairedComparison } from './stats';
 
-/** How to build an agent on the far side of a process or table boundary. */
-export interface AgentSpec {
-  name: string;
-  opts?: Record<string, unknown>;
-}
+export type { AgentSpec } from './parallel';
 
 export interface GauntletOptions {
   /** Games per anchor row; rounded up to whole paired blocks (6 at 3p). */
@@ -29,6 +26,8 @@ export interface GauntletOptions {
   seed: number;
   /** Per-decision wall-clock budget for the candidate, ms (default 30). */
   budgetMs?: number;
+  /** Threads (default 1: in-process, exactly reproducible in tests). */
+  workers?: number;
   /** `deck` (default) or `draw` — see SetupMode. */
   setupMode?: SetupMode;
   onProgress?: (anchor: string, done: number, total: number) => void;
@@ -72,28 +71,45 @@ function timed(agent: Agent, sink: { ms: number; decisions: number }): Agent {
 /**
  * Run the candidate against each anchor in ladder order (oldest to newest).
  */
-export function runGauntlet(
+export async function runGauntlet(
   candidate: AgentSpec,
   anchors: AgentSpec[],
   opts: GauntletOptions,
-): GauntletReport {
+): Promise<GauntletReport> {
   const budgetMs = opts.budgetMs ?? 30;
+  const workers = opts.workers ?? 1;
   const rows: GauntletRow[] = [];
 
   for (const anchor of anchors) {
     const sink = { ms: 0, decisions: 0 };
-    const table = [
-      timed(makeAgent(candidate.name, candidate.opts), sink),
-      makeAgent(anchor.name, anchor.opts),
-      makeAgent(anchor.name, anchor.opts),
-    ];
-    const sim = simulate(table, {
-      players: 3,
-      games: opts.gamesPerAnchor,
-      seed: opts.seed,
-      setupMode: opts.setupMode,
-      onGame: (_r, i) => opts.onProgress?.(anchor.name, i + 1, opts.gamesPerAnchor),
-    });
+    let sim: SimResult;
+    if (workers > 1) {
+      const parallel = await simulateParallel([candidate, anchor, anchor], {
+        players: 3,
+        games: opts.gamesPerAnchor,
+        seed: opts.seed,
+        setupMode: opts.setupMode,
+        workers,
+        timeAgentIndex: 0,
+        onProgress: (done, total) => opts.onProgress?.(anchor.name, done, total),
+      });
+      sim = parallel;
+      sink.ms = parallel.timing?.ms ?? 0;
+      sink.decisions = parallel.timing?.decisions ?? 0;
+    } else {
+      const table = [
+        timed(makeAgent(candidate.name, candidate.opts), sink),
+        makeAgent(anchor.name, anchor.opts),
+        makeAgent(anchor.name, anchor.opts),
+      ];
+      sim = simulate(table, {
+        players: 3,
+        games: opts.gamesPerAnchor,
+        seed: opts.seed,
+        setupMode: opts.setupMode,
+        onGame: (_r, i) => opts.onProgress?.(anchor.name, i + 1, opts.gamesPerAnchor),
+      });
+    }
 
     // The two anchor copies are symmetric under seat permutation, so the
     // paired comparison against either copy reads the same effect.

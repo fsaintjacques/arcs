@@ -6,6 +6,7 @@
  *   npx tsx tools/gauntlet.ts --candidate greedy --opts '{"samples":5}' --anchors anchor-greedy-v0
  */
 import { execSync } from 'node:child_process';
+import os from 'node:os';
 import { anchorLadder } from '../src/agents';
 import { runGauntlet, type AgentSpec } from '../src/sim/gauntlet';
 
@@ -23,15 +24,17 @@ const anchors: AgentSpec[] = (args.anchors ? args.anchors.split(',') : anchorLad
 const games = Number(args.games ?? 240);
 const seed = Number(args.seed ?? 1);
 const budgetMs = Number(args['budget-ms'] ?? 30);
+const workers = Number(args.workers ?? Math.max(1, os.availableParallelism() - 1));
 
 console.log(`gauntlet: ${candidate.name} vs [${anchors.map((a) => a.name).join(', ')}]`);
-console.log(`${games} games per anchor, seed ${seed}, budget ${budgetMs}ms/decision\n`);
+console.log(`${games} games per anchor, seed ${seed}, budget ${budgetMs}ms/decision, ${workers} workers\n`);
 
 const t0 = performance.now();
-const report = runGauntlet(candidate, anchors, {
+const report = await runGauntlet(candidate, anchors, {
   gamesPerAnchor: games,
   seed,
   budgetMs,
+  workers,
   onProgress: (anchor, done, total) => {
     if (done % 30 === 0) console.log(`  ${anchor}: ${done}/${total}`);
   },

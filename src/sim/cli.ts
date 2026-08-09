@@ -6,9 +6,11 @@
  *   npm run sim -- --agents greedy,greedy --games 1 --verbose
  *   npm run sim -- --agents mcts,greedy --opts '{"iterations":800}'
  */
+import os from 'node:os';
 import { AMBITIONS, actionCard, ambitionCount, cardName, POWER_THRESHOLD } from '../engine';
 import { agentNames, makeAgent } from '../agents';
-import { playGame, simulate } from './runner';
+import { simulateParallel } from './parallel';
+import { playGame, simulate, type SimResult } from './runner';
 import { computeStats, pairedStats } from './stats';
 
 function parseArgs(argv: string[]): Record<string, string> {
@@ -38,6 +40,7 @@ if (args.help === 'true') {
   --no-rotate  keep seats fixed instead of rotating agents through them
   --unpaired   give every game its own deal instead of holding it fixed across
                a block of seatings (much noisier; use only to show the contrast)
+  --workers    worker threads (default: all cores but one; 1 = in-process)
   --verbose    play a single game and print a turn log
 `);
   process.exit(0);
@@ -90,8 +93,8 @@ if (args.verbose === 'true') {
   process.exit(0);
 }
 
-const t0 = performance.now();
-const sim = simulate(agents, {
+const workers = Number(args.workers ?? Math.max(1, os.availableParallelism() - 1));
+const simOpts = {
   players,
   games,
   seed,
@@ -99,7 +102,16 @@ const sim = simulate(agents, {
   setupMode,
   rotateSeats: args['no-rotate'] !== 'true',
   paired: args.unpaired !== 'true',
-});
+};
+
+const t0 = performance.now();
+const sim: SimResult =
+  workers > 1
+    ? await simulateParallel(
+        names.map((name) => ({ name, opts: agentOpts })),
+        { ...simOpts, workers },
+      )
+    : simulate(agents, simOpts);
 const dt = performance.now() - t0;
 const played = sim.games.length;
 const st = computeStats(sim, names, dt / played);
