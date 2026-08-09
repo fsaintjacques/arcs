@@ -686,6 +686,57 @@ best *action*: ties are everywhere (most moves swing nothing), and an
 identity metric charges the trim for returning a different member of the
 same optimum.
 
+## mcts2: the eval is a policy, not a value — the ablations refuted the design premise
+
+`mcts2` was designed from the last three sections' shared conclusion:
+evaluation improvements pay at 1 ply and drown by thirty random rollout
+decisions, so value search leaves with the evaluation directly. Built that
+way — PUCT over `generateCandidates` with softmax-of-`relativeEvaluate`
+priors computed lazily on a node's second visit, pooled determinizations,
+`valueVector` at the frontier, exact dice at unrolled frontier battles — it
+swept the whole anchor ladder at ~25 ms/decision, every rung separated:
+**+55.0 ± 13.0** over `anchor-greedy-v0`, **+40.0 ± 11.2** over
+`anchor-mcts300-v0`, **+20.0 ± 13.5** over `anchor-mcts-c-v1` (replicated
+**+25.0 ± 14.0** at a second seed). More time buys more strength: the same
+brain at 600 ms beats itself at ~20 ms by +29.2 ± 15.5.
+
+Then the ablations priced each idea, one feature off per run against the
+full agent at equal iterations:
+
+| feature removed | diff | verdict |
+|---|---|---|
+| eval priors | **−37.5 ± 12.1, sep** | the engine of the gain |
+| truncation (rollout leaves restored) | **+30.0 ± 18.0, sep** | the "ablation" *won* |
+| world pooling | +22.5 ± 23.0, n.s. | no verdict; hint it costs |
+
+The design premise did not survive its own instrument. The equal-iteration
+rollout win could have been compute (36 vs 25 ms/decision), so the fair
+fight was re-run at equal time — rollout leaves at 480 iterations against
+eval leaves at 600, both ~30 ms — and rollout leaves still won,
+**+18.8 ± 11.5, separated**. Two independent confirmations came with it:
+the tuned weights *still* fail to transfer inside an eval-leaf search
+(−2.5 ± 11.6, the re-transfer the tuner section demanded — they were
+greedy-overfit, not rollout-diluted), and priors alone carry the ladder.
+
+So the honest model is this: the evaluation is good at *ordering actions*
+and bad at *predicting outcomes*. As a prior it only has to rank siblings,
+exactly what a 1-ply argmax does — the setting where every eval improvement
+measured well. As a leaf value it has to compare positions across subtrees
+on one cardinal scale, and a noisy random+ rollout — an unbiased sample of
+where the game actually goes — beats it. "Rollout dilution" was the wrong
+diagnosis for the transfer failures; "the eval is ordinal, not cardinal" fits
+every reading this file has produced, including the exact-dice negative
+result (noise around an ordinal eval acted as optimism, not error).
+
+`mcts2` therefore ships with rollout-valued leaves and eval priors —
+`rolloutLeaf: false` keeps truncation available for experiments — and the
+final configuration roughly doubles the margin the design premise had
+earned: **+38.8 ± 13.4** and **+45.0 ± 12.6** over `anchor-mcts-c-v1` at
+the two standard seeds, 25.5 ms/decision, frozen as `anchor-mcts2-v2`. The
+learned-value-function milestone inherits a sharper target than it had: a
+net trained on *outcomes* is exactly the cardinal leaf value the heuristic
+cannot be.
+
 ## Open questions
 
 - **Ambition timing, the initiative half.** The `declarableLead` term now
@@ -695,10 +746,11 @@ same optimum.
   Two cards bear directly on it: Secret Order and Galactic Bards both suppress
   the zero marker, so a bot holding either should declare far more freely, and
   none of them notices.
-- **Weight tuning.** All the `eval.ts` weights — including the new hand terms
-  and the scarcity prices, which are hand-guessed — are unfitted. A CEM run
-  over paired seeds is the next step, and the worker pool makes its
-  population evaluations affordable.
+- **Weight tuning against the right objective.** The CEM run improved the
+  greedy carrier and transferred to nothing else — twice. If the eval is
+  ordinal, tuning it as a leaf value optimises the wrong target; tuning it
+  as a *prior* (fitness = mcts2 strength directly, expensive but now ~25 ms
+  a decision) is the version of the experiment that hasn't been run.
 - **Batch size — still the binding constraint.** Pairing removed the bias but not
   the spread, so the 120-game rows still carry ±15 to ±17. The engine runs ~1000
   random games a second and `greedy` about 35, so 2000-game batches are minutes
@@ -718,5 +770,7 @@ same optimum.
   whole public record rather than one hand-specified feature. The metric harness
   (`tools/belief-eval.ts`) is in place to judge it.
 - **Learned value function.** The state is large but regular (24 systems ×
-  pieces, 5 ambitions, hand shape); a TD(λ) afterstate net is the natural
-  follow-up now that the Court is complete.
+  pieces, 5 ambitions, hand shape), and the mcts2 ablations sharpened the
+  target: the heuristic eval is ordinal, so the thing to learn is the
+  *cardinal* leaf value — a TD(λ) afterstate net trained on outcomes, to
+  replace the random+ rollout rather than the priors.

@@ -1,6 +1,7 @@
-import { anchorWeightsV0, anchorWeightsV1 } from './anchors';
+import { anchorMcts2V2Config, anchorWeightsV0, anchorWeightsV1 } from './anchors';
 import { makeGreedy } from './greedy';
 import { makeMcts } from './mcts';
+import { makeMcts2 } from './mcts2';
 import { makeMonteCarlo } from './montecarlo';
 import { makeRandom, makeRandomPlus } from './random';
 import { tunedWeightsV1 } from './weights/tuned1';
@@ -13,6 +14,7 @@ export * from './random';
 export * from './greedy';
 export * from './montecarlo';
 export * from './mcts';
+export * from './mcts2';
 export * from './anchors';
 export * from './dicemath';
 export * from './candidates';
@@ -34,6 +36,10 @@ export const agents: Record<string, AgentFactory> = {
   'mcts-fast': (opts) => makeMcts({ iterations: 120, rolloutDepth: 20, ...opts }, 'mcts-fast'),
   /** MCTS with informed candidate trimming instead of blind narrow(). */
   'mcts-c': (opts) => makeMcts({ candidates: true, ...opts }, 'mcts-c'),
+  /** PUCT with eval priors over pooled determinized worlds. */
+  mcts2: (opts) => makeMcts2({ iterations: 440, ...opts }),
+  /** The same brain with an interactive wall-clock budget. */
+  'mcts2-play': (opts) => makeMcts2({ iterations: 100_000, timeMs: 600, ...opts }, 'mcts2-play'),
   /** CEM run-1 weights (weights/tuned1.ts) — experimental, not promoted. */
   'greedy-t1': (opts) => makeGreedy({ weights: tunedWeightsV1, ...opts }, 'greedy-t1'),
   'mcts-t1': (opts) => makeMcts({ weights: tunedWeightsV1, ...opts }, 'mcts-t1'),
@@ -47,6 +53,8 @@ export const agents: Record<string, AgentFactory> = {
       { iterations: 300, candidates: true, weights: anchorWeightsV1, ...opts },
       'anchor-mcts-c-v1',
     ),
+  'anchor-mcts2-v2': (opts) =>
+    makeMcts2({ ...anchorMcts2V2Config, weights: anchorWeightsV1, ...opts }, 'anchor-mcts2-v2'),
 };
 
 export function makeAgent(name: string, opts?: Record<string, unknown>): Agent {

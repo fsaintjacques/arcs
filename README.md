@@ -153,6 +153,15 @@ modes. Bundled agents:
 | `mc` | flat Monte-Carlo over sampled worlds |
 | `mcts` | determinized ISMCTS with max^n backup |
 | `mcts-fast` | the same, cheap enough for large batches |
+| `mcts-c` | `mcts` trimming wide nodes with `generateCandidates` instead of blind `narrow` |
+| `mcts2` | PUCT with eval-softmax priors over pooled determinized worlds; rollout-valued leaves (the eval turned out ordinal, not cardinal — see FINDINGS) |
+| `mcts2-play` | the same brain on a 600 ms wall-clock budget, for the Play UI |
+| `greedy-t1` / `mcts-t1` | CEM run-1 weights, experimental (docs/GAUNTLET.md) |
+| `anchor-*` | frozen gauntlet yardsticks — never retuned (src/agents/anchors.ts) |
+
+Strength claims go through the gauntlet (`npx tsx tools/gauntlet.ts`, see
+[docs/GAUNTLET.md](docs/GAUNTLET.md)); results and negative findings land in
+[docs/FINDINGS.md](docs/FINDINGS.md).
 
 The evaluation function in `src/agents/eval.ts` is the main experimentation
 surface: banked Power, what the declared ambition boxes are currently worth,
