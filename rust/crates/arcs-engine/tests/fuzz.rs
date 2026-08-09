@@ -147,8 +147,8 @@ fn check_invariants(s: &GameState, base: &Baseline, ctx: &str) {
     }
     if let Some(turn) = &s.turn {
         // Tokens spent this Prelude sit off-board until the Prelude ends.
-        for r in turn.prelude_spent.iter() {
-            resources[r.as_index()] += 1;
+        for (r, &n) in turn.prelude_spent.iter().enumerate() {
+            resources[r] += n as u16;
         }
     }
     assert_eq!(
@@ -192,6 +192,14 @@ fn check_invariants(s: &GameState, base: &Baseline, ctx: &str) {
         for &c in s.player_states[p].guild_cards.iter() {
             court[c.as_index()] += 1;
         }
+    }
+    // R3: a secured Vox card sits in limbo while its decision is pending,
+    // and an attached Union card sits on a played action card.
+    if let Some(pending) = s.pending_vox {
+        court[pending.card.as_index()] += 1;
+    }
+    for u in s.unions.iter() {
+        court[u.card.as_index()] += 1;
     }
     assert_eq!(
         court, [1u8; COURT_CARD_COUNT],

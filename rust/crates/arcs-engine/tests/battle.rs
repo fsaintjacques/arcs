@@ -542,8 +542,8 @@ fn destroying_a_city_provokes_outrage_and_ransacks_the_court() {
     assert_eq!(f.s.court.as_slice()[0].agents[rival.as_index()], 1);
 }
 
-// A secured Vox card resolves inert in R2 (R3: pendingVox) — securing one
-// must not wedge the game or leak the card.
+// A secured Vox card holds the turn open (`pending_vox`) until answered,
+// then is discarded — securing one must not wedge the game or leak the card.
 #[test]
 fn securing_a_vox_card_discards_it_and_refills_the_slot() {
     let mut f = start_game(3, 92, 0);
@@ -562,6 +562,10 @@ fn securing_a_vox_card_discards_it_and_refills_the_slot() {
     f.s.court.as_mut_slice()[0].agents[player.as_index()] = 1;
 
     apply(&mut f, Action::Secure { slot: 0 });
+    // Outrage Spreads asks the securer something before the turn moves on.
+    assert_eq!(f.s.pending_vox.map(|p| p.card), Some(vox));
+    apply(&mut f, Action::VoxSkip);
+    assert!(f.s.pending_vox.is_none());
     assert!(f.s.court_discard.contains(&vox));
     assert!(f.s.player(player).guild_cards.is_empty());
     assert_ne!(f.s.court.as_slice()[0].card, vox);

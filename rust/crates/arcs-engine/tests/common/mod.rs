@@ -110,6 +110,139 @@ pub fn turn_with(f: &mut Fixture, suit: u8, number: u8) -> Player {
     player
 }
 
+// ---------------------------------------------------------------------------
+// Powers-test fixtures (`tests/powers.test.ts` helpers)
+// ---------------------------------------------------------------------------
+
+use arcs_engine::CourtCardId;
+use arcs_engine::court::COURT_DECK;
+use arcs_engine::rng::Rng;
+use arcs_engine::state::BattleState;
+use arcs_engine::types::SystemId;
+
+/// The card id of a Court card by name (`card` in powers.test.ts).
+pub fn court(name: &str) -> CourtCardId {
+    COURT_DECK
+        .iter()
+        .find(|c| c.name == name)
+        .unwrap_or_else(|| panic!("no card {name}"))
+        .id
+}
+
+/// Put the actor on turn holding `cards`, having led a card of `suit`
+/// (`turnHolding` in powers.test.ts).
+pub fn turn_holding(seed: u64, cards: &[&str], suit: u8, number: u8) -> (Fixture, Player) {
+    let mut f = start_game(3, seed, 0);
+    let player = actor(&f);
+    f.s.player_states[player.as_index()].guild_cards = cards.iter().map(|n| court(n)).collect();
+    set_hand(&mut f, player, &[card_id(suit, number)]);
+    apply(
+        &mut f,
+        Action::Lead {
+            card: card_id(suit, number),
+        },
+    );
+    (f, player)
+}
+
+/// The same, but with Battle pips and a planet where the player outnumbers a
+/// Rival, ready for a `battle` action (`battleWith` in powers.test.ts).
+pub fn battle_with(seed: u64, cards: &[&str]) -> (Fixture, Player, Player, SystemId) {
+    let (mut f, player) = turn_holding(seed, cards, AGGRESSION, 2);
+    let rival = Player((player.0 + 1) % 3);
+    let system = (0..f.s.systems.len())
+        .find(|&i| {
+            f.v.systems[i].kind == arcs_engine::map::SystemKind::Planet
+                && !f.s.systems[i].out_of_play
+        })
+        .expect("an in-play planet exists");
+    let system = SystemId(system as u8);
+    f.s.systems[system.as_index()].fresh[player.as_index()] = 6;
+    f.s.systems[system.as_index()].fresh[rival.as_index()] = 4;
+    apply(&mut f, Action::BeginActions);
+    (f, player, rival, system)
+}
+
+/// A battle mid-resolution with the roll already made; only the named
+/// fields matter (`battleState` in helpers.ts).
+pub fn battle_state(system: SystemId, attacker: Player, defender: Player, keys: u8) -> BattleState {
+    BattleState {
+        system,
+        attacker,
+        defender,
+        keys,
+        ..BattleState::default()
+    }
+}
+
+/// An RNG that always returns the same word — `() => 0.9`-style scripted
+/// rolls (`gen_range(6)` gives 5 for `u64::MAX`, 0 for `0`).
+pub struct ConstRng(pub u64);
+
+impl Rng for ConstRng {
+    fn next_u64(&mut self) -> u64 {
+        self.0
+    }
+}
+
+/// Drive the game forward with a trivial policy until the round advances
+/// past the one in progress (`settleRound` in helpers.ts).
+pub fn settle_round(f: &mut Fixture) {
+    let start_rounds = f.s.stats.rounds;
+    for _ in 0..200 {
+        if f.s.stats.rounds > start_rounds {
+            return;
+        }
+        match get_pending(&f.s, &f.v) {
+            Pending::Over => return,
+            Pending::Chance => {
+                resolve_chance_mut(&mut f.s, &f.v, &mut f.rng).unwrap();
+            }
+            Pending::Decision { .. } => {
+                let mut acts = Vec::new();
+                legal_actions(&f.s, &f.v, &mut acts);
+                let prefer = acts
+                    .iter()
+                    .find(|a| matches!(a, Action::EndTurn))
+                    .or_else(|| acts.iter().find(|a| matches!(a, Action::PassInitiative)))
+                    .copied()
+                    .unwrap_or(acts[0]);
+                apply_action_mut(&mut f.s, &f.v, prefer).unwrap();
+            }
+        }
+    }
+    panic!("round did not end within the step limit");
+}
+
+/// The same, but run to the end of the chapter so scoring happens
+/// (`settleToChapterEnd` in helpers.ts).
+pub fn settle_to_chapter_end(f: &mut Fixture) {
+    let start_chapters = f.s.stats.chapters;
+    for _ in 0..400 {
+        if f.s.stats.chapters > start_chapters {
+            return;
+        }
+        match get_pending(&f.s, &f.v) {
+            Pending::Over => return,
+            Pending::Chance => {
+                resolve_chance_mut(&mut f.s, &f.v, &mut f.rng).unwrap();
+            }
+            Pending::Decision { .. } => {
+                let mut acts = Vec::new();
+                legal_actions(&f.s, &f.v, &mut acts);
+                let prefer = acts
+                    .iter()
+                    .find(|a| matches!(a, Action::PassInitiative))
+                    .or_else(|| acts.iter().find(|a| matches!(a, Action::EndTurn)))
+                    .copied()
+                    .unwrap_or(acts[0]);
+                apply_action_mut(&mut f.s, &f.v, prefer).unwrap();
+            }
+        }
+    }
+    panic!("chapter did not end within the step limit");
+}
+
 /// Follow modes offered for one card, as sorted single letters.
 pub fn modes_for(list: &[Action], card: ActionCardId) -> Vec<char> {
     let mut out: Vec<char> = list

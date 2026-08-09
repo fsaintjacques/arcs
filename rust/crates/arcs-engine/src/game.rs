@@ -15,13 +15,10 @@
 //! Court card holding the most defender agents (ties leftmost), and free
 //! Prelude grants are consumed before card pips, most-restrictive first.
 //!
-//! **R2 scope**: everything up to and including the board actions
-//! (`tax`/`build`/`move`/`catapult`/`repair`/`influence`/`secure`), battle
-//! with hit assignment and raiding, ambition scoring and chapter/game end.
-//! Guild-card *powers*, Vox effects and Farseers land in R3 — a secured Vox
-//! card currently resolves inert (discarded, marked `R3: pendingVox`) so
-//! games complete, and the `battleReroll` phase stays gated behind the
-//! Skirmishers passive (never enumerated before R3).
+//! A Vox card secured mid-turn or mid-Ransack overlays `pending_vox` on the
+//! phase rather than replacing it, so the interrupted flow resumes
+//! afterwards. Both [`after_action`] and [`settle_battle`] stall while one
+//! is pending.
 
 use crate::action::{Action, FollowMode, HitTarget};
 use crate::ambitions::{flip_lowest_unflipped, highest_available, score_chapter};
@@ -31,12 +28,19 @@ use crate::dice::{RollTotals, SKIRMISH_FACES, reroll_skirmish, roll_battle};
 use crate::inline_vec::InlineVec;
 use crate::map::{SYSTEM_COUNT, SystemKind, is_gate, planet_id};
 use crate::player_board::raid_cost;
-use crate::powers::{provoke_outrage, steal_guild_card};
+use crate::powers::{
+    apply_card_action, apply_card_prelude, apply_peek_swap, apply_vox, apply_vox_immediate,
+    can_declare_on_follow, can_peek, can_reroll_skirmish, card_action_cost, card_actions,
+    cartel_squeeze, discard_guild_card, extra_battle_dice, loyal_types, peek_swap_actions,
+    peek_target_actions, prelude_card_actions, provoke_outrage, skips_zero_marker,
+    steal_guild_card, theft_immune, theft_immunity_card, vox_actions, vox_needs_decision,
+    weapon_icons,
+};
 use crate::rng::Rng;
 use crate::setup::{SetupMode, VariantDef, draw_setup};
 use crate::state::{
-    ActionKindSet, BattleState, Building, CourtSlot, GameState, GameStats, MoveState, PlayedCard,
-    PlayerState, RoundState, SystemState, TrophyKind, TurnState,
+    ActionKindSet, BattleState, Building, CourtSlot, GameState, GameStats, MoveState, Peek,
+    PendingVox, PlayedCard, PlayerState, RoundState, SystemState, TrophyKind, TurnState, VoxResume,
 };
 use crate::types::{
     ActionCardId, ActionKind, AmbitionId, BuildingKind, DieType, Phase, PlayMode, Player,
@@ -65,9 +69,6 @@ pub enum RuleError {
     WrongPhase,
     /// The action names something the state does not contain.
     Illegal(&'static str),
-    /// The action's phase lands in a later milestone (R2: board actions and
-    /// battle; R3: card powers, Vox, Farseers).
-    NotYetImplemented(&'static str),
 }
 
 impl core::fmt::Display for RuleError {
@@ -75,7 +76,6 @@ impl core::fmt::Display for RuleError {
         match self {
             RuleError::WrongPhase => write!(f, "action does not belong to this phase"),
             RuleError::Illegal(why) => write!(f, "illegal action: {why}"),
-            RuleError::NotYetImplemented(what) => write!(f, "not yet implemented: {what}"),
         }
     }
 }
@@ -132,7 +132,7 @@ fn mulligan_player(s: &GameState) -> Player {
 pub fn legal_actions(s: &GameState, v: &VariantDef, out: &mut Vec<Action>) {
     out.clear();
     if s.pending_vox.is_some() {
-        // R3: voxActions(s).
+        vox_actions(s, out);
         return;
     }
     match s.phase {
@@ -145,9 +145,7 @@ pub fn legal_actions(s: &GameState, v: &VariantDef, out: &mut Vec<Action>) {
         Phase::Actions => turn_actions(s, v, out),
         Phase::Catapult => catapult_actions(s, v, out),
         Phase::BattleAssign => battle_actions(s, out),
-        // R3: battleReroll (Skirmishers) — the phase is unreachable until
-        // `can_reroll_skirmish` can be true, i.e. until card powers land.
-        Phase::BattleReroll => {}
+        Phase::BattleReroll => reroll_actions(s, out),
         Phase::Reinforce => {
             for def in &v.systems {
                 if def.kind == SystemKind::Gate && !s.systems[def.id.as_index()].out_of_play {
@@ -155,8 +153,28 @@ pub fn legal_actions(s: &GameState, v: &VariantDef, out: &mut Vec<Action>) {
                 }
             }
         }
-        // R3: peekTarget, peekSwap (Farseers).
+        Phase::PeekTarget => {
+            let peek = s.peek.expect("peekTarget without a peek");
+            peek_target_actions(s, peek.player, out);
+        }
+        Phase::PeekSwap => peek_swap_actions(s, out),
         _ => {}
+    }
+}
+
+/// Skirmishers: "After you roll in battle, you may reroll a number of
+/// skirmish dice up to your total Weapon icons from resources and cards."
+///
+/// Engine ruling: only *blank* skirmish dice are offered. A skirmish face is
+/// either one hit or nothing and the die never hurts the attacker, so
+/// rerolling a face that already hit is strictly dominated — it can only
+/// lose a hit. Every outcome reachable by rerolling a hit is reachable by
+/// rerolling fewer dice. (`rerollActions` in game.ts.)
+fn reroll_actions(s: &GameState, out: &mut Vec<Action>) {
+    let b = s.battle.expect("battleReroll without a battle");
+    let most = weapon_icons(s.player(b.attacker)).min(b.skirmish_blanks);
+    for count in 0..=most {
+        out.push(Action::RerollSkirmish { count });
     }
 }
 
@@ -199,12 +217,12 @@ fn play_actions(s: &GameState, out: &mut Vec<Action>) {
 
 /// Declare / seize / spend resources, then begin actions (p9, p10, p17,
 /// p20). (`preludeActions` in game.ts.)
-fn prelude_actions(s: &GameState, _v: &VariantDef, out: &mut Vec<Action>) {
+fn prelude_actions(s: &GameState, v: &VariantDef, out: &mut Vec<Action>) {
     let turn = s.turn.expect("prelude without a turn");
     let p = s.player(turn.player);
 
     // Declaring and seizing are decided before any Prelude action (p20).
-    if !turn.prelude_over && turn.prelude_spent.is_empty() {
+    if !turn.prelude_over && turn.prelude_spent.iter().all(|&n| n == 0) {
         for &ambition in declarable_ambitions(s).iter() {
             out.push(Action::DeclareAmbition { ambition });
         }
@@ -217,6 +235,7 @@ fn prelude_actions(s: &GameState, _v: &VariantDef, out: &mut Vec<Action>) {
 
     // Spend resources for their Prelude actions (p17). Outraged types
     // cannot; one offer per distinct held type.
+    let loyal = loyal_types(s, turn.player);
     let mut seen = [false; ResourceType::COUNT];
     for slot in 0..p.open_resource_slots() {
         let Some(r) = p.resources[slot] else { continue };
@@ -229,15 +248,33 @@ fn prelude_actions(s: &GameState, _v: &VariantDef, out: &mut Vec<Action>) {
         if !outraged && !psionic_without_lead {
             out.push(Action::SpendResource { slot: slot as u8 });
         }
-        // R3: `SpendResourceAs` offers via Loyal Guild cards (loyalTypes).
+        // A Loyal card lets any resource be spent as its type, ignoring
+        // Outrage on the type being spent as (p20 rules hierarchy,
+        // "ignore").
+        for &spend_as in loyal.iter() {
+            if spend_as == r {
+                continue;
+            }
+            if spend_as == ResourceType::Psionic && s.round.lead.is_none() {
+                continue;
+            }
+            out.push(Action::SpendResourceAs {
+                slot: slot as u8,
+                spend_as,
+            });
+        }
     }
 
-    // R3: preludeCardActions (Guild-card `Prelude:` abilities).
+    prelude_card_actions(s, v, turn.player, out);
     out.push(Action::BeginActions);
 }
 
-/// Which ambitions the current turn may declare. The normal route is the
-/// leader declaring the ambition printed on a face-up lead card (p9).
+/// Which ambitions the current turn may declare.
+///
+/// The normal route is the leader declaring the ambition printed on a
+/// face-up lead card (p9). **Galactic Bards** adds a second: "When you
+/// Surpass or Pivot, before taking any actions, you may declare the ambition
+/// on your played card if an ambition has not been declared yet this round."
 /// (`declarableAmbitions` in game.ts.)
 fn declarable_ambitions(s: &GameState) -> InlineVec<AmbitionId, { AmbitionId::COUNT }> {
     let turn = s.turn.expect("prelude without a turn");
@@ -251,9 +288,12 @@ fn declarable_ambitions(s: &GameState) -> InlineVec<AmbitionId, { AmbitionId::CO
             Some(lead) if !lead.face_down => lead.card,
             _ => return out,
         },
-        // R3: Galactic Bards declares on a Surpass or Pivot
-        // (canDeclareOnFollow) if no ambition is declared yet this round.
-        PlayMode::Surpass | PlayMode::Pivot => return out,
+        PlayMode::Surpass | PlayMode::Pivot => {
+            if !can_declare_on_follow(s, turn.player) || s.round.ambition_declared {
+                return out;
+            }
+            turn.card
+        }
         // A Copy play is face down and declares nothing.
         PlayMode::Copy => return out,
     };
@@ -319,7 +359,7 @@ fn turn_actions(s: &GameState, v: &VariantDef, out: &mut Vec<Action>) {
     if kinds.contains(ActionKind::Battle) {
         battle_setup_actions(s, v, player, out);
     }
-    // R3: cardActions (Guild-card new actions).
+    card_actions(s, v, player, kinds, out);
 
     out.push(Action::EndTurn);
 }
@@ -493,8 +533,9 @@ fn battle_setup_actions(s: &GameState, _v: &VariantDef, player: Player, out: &mu
                 .any(|b| b.player() == defender);
             let raid_allowed = defending_buildings || !has_any_building(s, defender);
             // "1 die per attacking ship ... you cannot collect more than 6
-            // of a type". R3: Gatekeepers adds extra dice at gates.
-            let max = (attacking as usize).min(DICE_PER_TYPE * 3);
+            // of a type". Gatekeepers adds extra dice at gates.
+            let max = (attacking as usize + extra_battle_dice(s, player, system) as usize)
+                .min(DICE_PER_TYPE * 3);
             for a in 0..=DICE_PER_TYPE.min(max) {
                 for sk in 0..=DICE_PER_TYPE.min(max - a) {
                     let max_raid = if raid_allowed {
@@ -601,16 +642,28 @@ fn battle_actions(s: &GameState, out: &mut Vec<Action>) {
     // Raiding needs surviving attacking ships (p14 step 4.5).
     if b.keys > 0 && s.ships_of(b.system, b.attacker) > 0 {
         let victim = s.player(b.defender);
-        // R3: Sworn Guardians (theft immunity) restricts this list to the
-        // shield card itself.
-        for slot in 0..victim.open_resource_slots() {
-            if victim.resources[slot].is_some() && raid_cost(slot) <= b.keys {
-                out.push(Action::RaidResource { slot: slot as u8 });
+        // Sworn Guardians: "Rivals cannot steal your resources and other
+        // Guild cards. (In battle they can steal this first and then spend
+        // keys.)"
+        let shield = if theft_immune(s, b.defender) {
+            theft_immunity_card(s, b.defender)
+        } else {
+            None
+        };
+        if let Some(shield) = shield {
+            if court_card(shield).raid_cost <= b.keys {
+                out.push(Action::RaidCard { card: shield });
             }
-        }
-        for &card in victim.guild_cards.iter() {
-            if court_card(card).raid_cost <= b.keys {
-                out.push(Action::RaidCard { card });
+        } else {
+            for slot in 0..victim.open_resource_slots() {
+                if victim.resources[slot].is_some() && raid_cost(slot) <= b.keys {
+                    out.push(Action::RaidResource { slot: slot as u8 });
+                }
+            }
+            for &card in victim.guild_cards.iter() {
+                if court_card(card).raid_cost <= b.keys {
+                    out.push(Action::RaidCard { card });
+                }
             }
         }
         out.push(Action::RaidDone);
@@ -643,8 +696,6 @@ pub fn resolve_chance_mut(
             // A Skirmishers reroll replaces only the blank skirmish dice it
             // names; the rest of the roll stands, and no new intercept can
             // appear because the skirmish die has no intercept face.
-            // (Unreachable before R3: only the battleReroll phase sets
-            // `pending_reroll`, and it is gated behind the Skirmishers card.)
             if b.pending_reroll > 0 {
                 let rr = reroll_skirmish(b.pending_reroll, rng);
                 // Swap the named blanks for their new faces.
@@ -709,10 +760,16 @@ pub fn apply_battle_roll_mut(
         b.intercept_resolved = true;
     }
     s.battle = Some(b);
-    // R3: Skirmishers — when the attacker holds the card and has Weapon
-    // icons, unrerolled blanks open the battleReroll phase here
-    // (canRerollSkirmish / weaponIcons in powers.ts). No card powers are
-    // active in R2, so the offer never opens.
+    // Skirmishers: when the attacker holds the card and has Weapon icons,
+    // unrerolled blanks open the battleReroll phase.
+    if !b.reroll_done
+        && b.skirmish_blanks > 0
+        && can_reroll_skirmish(s, b.attacker)
+        && weapon_icons(s.player(b.attacker)) > 0
+    {
+        s.phase = Phase::BattleReroll;
+        return Ok(());
+    }
     s.phase = Phase::BattleAssign;
     settle_battle(s, v);
     Ok(())
@@ -772,8 +829,7 @@ fn deal_chapter(s: &mut GameState, v: &VariantDef, rng: &mut impl Rng) {
 pub fn apply_action_mut(s: &mut GameState, v: &VariantDef, a: Action) -> Result<(), RuleError> {
     // A pending Vox effect is resolved before anything else can happen.
     if s.pending_vox.is_some() {
-        // R3: resolveVox.
-        return Err(RuleError::NotYetImplemented("Vox resolution lands in R3"));
+        return resolve_vox(s, v, a);
     }
 
     match a {
@@ -830,7 +886,8 @@ pub fn apply_action_mut(s: &mut GameState, v: &VariantDef, a: Action) -> Result<
             }
             let turn = s.turn.ok_or(RuleError::Illegal("no turn in progress"))?;
             declare_ambition(s, v, ambition, turn.player, turn.mode)?;
-            // R3: offerPeek (Farseers) after any declaration.
+            // Farseers looks at a Rival hand after any declaration.
+            offer_peek(s, turn.player, Phase::Prelude);
             Ok(())
         }
         Action::Seize { card } => {
@@ -902,16 +959,17 @@ pub fn apply_action_mut(s: &mut GameState, v: &VariantDef, a: Action) -> Result<
             finish_turn(s, v);
             Ok(())
         }
-        // R3: Guild-card Prelude abilities (applyCardPrelude in powers.ts).
-        Action::CardPrelude { .. } => Err(RuleError::NotYetImplemented(
-            "guild-card preludes land in R3",
-        )),
-        // R3: Guild-card new actions (applyCardAction in powers.ts).
-        Action::CardAction { .. } => Err(RuleError::NotYetImplemented(
-            "guild-card actions land in R3",
-        )),
-        // The board actions bought with pips and free grants.
-        Action::Tax { .. }
+        // Guild-card Prelude abilities (applyCardPrelude in powers.ts).
+        Action::CardPrelude { .. } => {
+            if s.phase != Phase::Prelude {
+                return Err(RuleError::WrongPhase);
+            }
+            apply_card_prelude(s, v, a)
+        }
+        // The board actions bought with pips and free grants, plus
+        // Guild-card new actions paid for the same way.
+        Action::CardAction { .. }
+        | Action::Tax { .. }
         | Action::BuildShip { .. }
         | Action::BuildBuilding { .. }
         | Action::Move { .. }
@@ -960,14 +1018,15 @@ pub fn apply_action_mut(s: &mut GameState, v: &VariantDef, a: Action) -> Result<
             battle_assign(s, v, a)
         }
         Action::RerollSkirmish { count } => {
-            // Unreachable before R3 (the battleReroll phase is gated behind
-            // Skirmishers), but the mechanics are complete.
             if s.phase != Phase::BattleReroll {
                 return Err(RuleError::WrongPhase);
             }
             let mut b = s
                 .battle
                 .ok_or(RuleError::Illegal("no battle in progress"))?;
+            if count > b.skirmish_blanks {
+                return Err(RuleError::Illegal("more rerolls than blanks"));
+            }
             if count > 0 {
                 b.pending_reroll = count;
                 s.battle = Some(b);
@@ -980,15 +1039,100 @@ pub fn apply_action_mut(s: &mut GameState, v: &VariantDef, a: Action) -> Result<
             settle_battle(s, v);
             Ok(())
         }
-        // R3: Farseers.
-        Action::PeekTarget { .. } | Action::PeekSwap { .. } | Action::PeekSwapSkip => {
-            Err(RuleError::NotYetImplemented("Farseers lands in R3"))
+        // Farseers: choose whose hand to look at, then maybe swap.
+        Action::PeekTarget { target } => {
+            if s.phase != Phase::PeekTarget {
+                return Err(RuleError::WrongPhase);
+            }
+            let mut peek = s.peek.ok_or(RuleError::Illegal("no peek in progress"))?;
+            match target {
+                None => end_peek(s, v),
+                Some(target) => {
+                    peek.target = Some(target);
+                    s.peek = Some(peek);
+                    s.phase = Phase::PeekSwap;
+                }
+            }
+            Ok(())
         }
-        // R3: Vox `When Secured`.
-        Action::Vox { .. } | Action::VoxSkip => {
-            Err(RuleError::NotYetImplemented("Vox effects land in R3"))
+        Action::PeekSwap { .. } | Action::PeekSwapSkip => {
+            if s.phase != Phase::PeekSwap {
+                return Err(RuleError::WrongPhase);
+            }
+            apply_peek_swap(s, a);
+            end_peek(s, v);
+            Ok(())
+        }
+        // A `vox` action is only meaningful while a Vox effect is pending,
+        // which the top of this function already handles.
+        Action::Vox { .. } | Action::VoxSkip => Err(RuleError::Illegal("no Vox effect pending")),
+    }
+}
+
+/// Farseers: "When you declare an ambition, look at a Rival's hand." Opens
+/// the two-step peek, returning to `resume` afterwards. Returns whether it
+/// opened. (`offerPeek` in game.ts.)
+fn offer_peek(s: &mut GameState, player: Player, resume: Phase) -> bool {
+    if !can_peek(s, player) {
+        return false;
+    }
+    let has_target = (0..s.players).any(|p| p != player.0 && !s.player(Player(p)).hand.is_empty());
+    if !has_target {
+        return false;
+    }
+    s.peek = Some(Peek {
+        player,
+        target: None,
+        resume,
+    });
+    s.phase = Phase::PeekTarget;
+    true
+}
+
+/// Close a Farseers peek and continue whatever it interrupted. The prelude
+/// just carries on; a battle or a turn needs its own continuation re-run,
+/// since the interrupted call already returned. (`endPeek` in game.ts.)
+fn end_peek(s: &mut GameState, v: &VariantDef) {
+    let resume = s.peek.expect("endPeek without a peek").resume;
+    s.peek = None;
+    s.phase = resume;
+    if resume == Phase::BattleAssign {
+        settle_battle(s, v);
+    } else if resume == Phase::Actions {
+        after_action(s, v);
+    }
+}
+
+/// Resolve a pending Vox `When Secured` effect, then resume the flow it
+/// interrupted — the rest of the turn's actions, or the rest of the battle.
+/// (`resolveVox` in game.ts.)
+fn resolve_vox(s: &mut GameState, v: &VariantDef, a: Action) -> Result<(), RuleError> {
+    let pending = s
+        .pending_vox
+        .ok_or(RuleError::Illegal("no Vox effect pending"))?;
+    let player = pending.player;
+    let resume = match pending.resume {
+        VoxResume::Battle => Phase::BattleAssign,
+        VoxResume::Actions => Phase::Actions,
+    };
+    let declare = apply_vox(s, a)?;
+
+    if let Some(ambition) = declare {
+        let mode = s.turn.map(|t| t.mode).unwrap_or(PlayMode::Lead);
+        declare_ambition(s, v, ambition, player, mode)?;
+        // Farseers triggers on any declaration, including this one.
+        if offer_peek(s, player, resume) {
+            return Ok(());
         }
     }
+
+    s.phase = resume;
+    if resume == Phase::BattleAssign {
+        settle_battle(s, v);
+    } else {
+        after_action(s, v);
+    }
+    Ok(())
 }
 
 // --- playing a card --------------------------------------------------------
@@ -1067,7 +1211,7 @@ fn play_card(s: &mut GameState, card: ActionCardId, mode: PlayMode) -> Result<()
         weapon_spent: false,
         prelude_over: false,
         declared_this_turn: false,
-        prelude_spent: InlineVec::new(),
+        prelude_spent: [0; ResourceType::COUNT],
         secured_this_prelude: InlineVec::new(),
         card_preludes_used: InlineVec::new(),
     });
@@ -1083,7 +1227,7 @@ fn declare_ambition(
     v: &VariantDef,
     ambition: AmbitionId,
     player: Player,
-    _mode: PlayMode,
+    mode: PlayMode,
 ) -> Result<(), RuleError> {
     let marker =
         highest_available(s, v).ok_or(RuleError::Illegal("no ambition marker available"))?;
@@ -1100,9 +1244,11 @@ fn declare_ambition(
     }
     s.round.ambition_declared = true;
     // "Place the zero marker onto the lead card ... its card number is now
-    // 0." R3: Secret Order exempts Keeper and Empath; Galactic Bards exempts
-    // its own Surpass/Pivot declaration (skipsZeroMarker in powers.ts).
-    s.round.lead_number = 0;
+    // 0." Secret Order exempts Keeper and Empath; Galactic Bards exempts
+    // its own Surpass/Pivot declaration.
+    if !skips_zero_marker(s, player, ambition, mode) {
+        s.round.lead_number = 0;
+    }
     s.stats.ambitions_declared += 1;
     Ok(())
 }
@@ -1130,7 +1276,7 @@ fn spend_resource(
         return Err(RuleError::Illegal("a Psionic needs a lead card to copy"));
     }
     p.resources[slot as usize] = None;
-    turn.prelude_spent.push(real);
+    turn.prelude_spent[real.as_index()] += 1;
 
     match r {
         ResourceType::Material => turn.free_actions.push(ActionKindSet::from_kinds(&[
@@ -1164,10 +1310,12 @@ fn spend_resource(
 fn end_prelude(s: &mut GameState) {
     let Some(mut turn) = s.turn else { return };
     if !turn.prelude_over {
-        for i in 0..turn.prelude_spent.len() {
-            s.return_to_supply(turn.prelude_spent.as_slice()[i]);
+        for r in ResourceType::ALL {
+            for _ in 0..turn.prelude_spent[r.as_index()] {
+                s.return_to_supply(r);
+            }
+            turn.prelude_spent[r.as_index()] = 0;
         }
-        turn.prelude_spent.clear();
         turn.prelude_over = true;
     }
     s.turn = Some(turn);
@@ -1335,6 +1483,10 @@ fn perform_action(s: &mut GameState, v: &VariantDef, a: Action) -> Result<(), Ru
             pay(s, ActionKind::Secure)?;
             secure_card(s, v, player, slot as usize, false)?;
         }
+        Action::CardAction { card, name, .. } => {
+            pay(s, card_action_cost(card, name)?)?;
+            apply_card_action(s, player, a)?;
+        }
         Action::Battle {
             system,
             defender,
@@ -1431,7 +1583,6 @@ fn move_ships_into(
 /// (`secureCard` in game.ts.)
 fn secure_card(
     s: &mut GameState,
-    // R3: Vox resolution needs the variant.
     _v: &VariantDef,
     player: Player,
     slot: usize,
@@ -1465,19 +1616,32 @@ fn secure_card(
     }
 
     if court_card(card).kind == CourtCardKind::Vox {
-        // R3: pendingVox / applyVoxImmediate — the `When Secured` effect
-        // (and Song of Freedom's shuffle-back) resolves here. Until then
-        // the card resolves inert and is discarded so games complete.
-        s.court_discard.push(card);
+        // A Vox card resolves When Secured. The ones that need a decision
+        // overlay `pending_vox` on the current phase; `after_action` and
+        // `settle_battle` stall until it is answered, then resume where
+        // they left off.
+        if vox_needs_decision(card) {
+            s.pending_vox = Some(PendingVox {
+                card,
+                player,
+                resume: if s.phase == Phase::BattleAssign {
+                    VoxResume::Battle
+                } else {
+                    VoxResume::Actions
+                },
+            });
+        } else {
+            apply_vox_immediate(s, player, card);
+        }
     } else {
         crate::powers::gain_guild_card(s, player, card);
         if let Some(turn) = s.turn.as_mut()
             && !turn.prelude_over
         {
             // A card secured during the Prelude cannot use its own Prelude
-            // ability this turn (p20) — R3 reads this list. Entries after
-            // the Prelude ended are dead, so they are not recorded (the TS
-            // list records them; nothing ever reads them).
+            // ability this turn (p20). Entries after the Prelude ended are
+            // dead, so they are not recorded (the TS list records them;
+            // nothing ever reads them).
             turn.secured_this_prelude.push(card);
         }
     }
@@ -1682,8 +1846,8 @@ fn destroy_city(
 /// Advance or finish the battle once a hit has been assigned.
 /// (`settleBattle` in game.ts.)
 fn settle_battle(s: &mut GameState, v: &VariantDef) {
-    // R3: a Ransack can secure a Vox card mid-battle; answer the pendingVox
-    // before continuing.
+    // A Ransack can secure a Vox card mid-battle; answer it before
+    // continuing.
     if s.pending_vox.is_some() {
         return;
     }
@@ -1706,17 +1870,26 @@ fn settle_battle(s: &mut GameState, v: &VariantDef) {
     }
     if b.keys > 0 {
         let victim = s.player(b.defender);
-        // R3: Sworn Guardians (theft immunity) narrows this to the shield
-        // card alone.
-        let can_steal = victim
-            .resources
-            .iter()
-            .enumerate()
-            .any(|(i, r)| r.is_some() && raid_cost(i) <= b.keys)
-            || victim
-                .guild_cards
-                .iter()
-                .any(|&c| court_card(c).raid_cost <= b.keys);
+        // Sworn Guardians narrows the raidable set to the shield card alone.
+        let shield = if theft_immune(s, b.defender) {
+            theft_immunity_card(s, b.defender)
+        } else {
+            None
+        };
+        let can_steal = match shield {
+            Some(c) => court_card(c).raid_cost <= b.keys,
+            None => {
+                victim
+                    .resources
+                    .iter()
+                    .enumerate()
+                    .any(|(i, r)| r.is_some() && raid_cost(i) <= b.keys)
+                    || victim
+                        .guild_cards
+                        .iter()
+                        .any(|&c| court_card(c).raid_cost <= b.keys)
+            }
+        };
         if !can_steal || s.ships_of(b.system, b.attacker) == 0 {
             b.keys = 0;
         }
@@ -1737,8 +1910,10 @@ fn settle_battle(s: &mut GameState, v: &VariantDef) {
 /// After any action: if nothing can still be spent, the turn ends itself.
 /// (`afterAction` in game.ts.)
 fn after_action(s: &mut GameState, v: &VariantDef) {
-    // R3: a secured Vox card is answered before the turn can advance or
-    // end.
+    // A secured Vox card is answered before the turn can advance or end.
+    if s.pending_vox.is_some() {
+        return;
+    }
     let Some(turn) = s.turn else { return };
     if turn.pips_left == 0 && turn.free_actions.is_empty() {
         end_turn(s, v);
@@ -1858,20 +2033,37 @@ fn pass_initiative(s: &mut GameState, v: &VariantDef) {
     begin_round(s, v);
 }
 
-/// Discard the round's played cards. (`discardPlayed` in game.ts.)
+/// Discard the round's played cards — but first hand out any card a Union
+/// is attached to: "When the round ends, draw that card into your hand and
+/// discard this card." (p20) (`discardPlayed` in game.ts.)
 fn discard_played(s: &mut GameState) {
-    // R3: Union attachments first claim the card they are attached to — the
-    // owner draws it back into hand and the Union card is discarded (p20).
-    // No Union can exist before Guild cards are holdable, so R1 only
-    // asserts the list is empty.
-    debug_assert!(s.unions.is_empty(), "unions land in R3");
+    // Action card -> claiming player, first Union on a card wins.
+    let unions = s.unions;
+    s.unions.clear();
+    let mut claimed: InlineVec<(ActionCardId, Player), 4> = InlineVec::new();
+    for u in unions.iter() {
+        if s.round.played.iter().any(|c| c.card == u.target)
+            && !claimed.iter().any(|(t, _)| *t == u.target)
+        {
+            claimed.push((u.target, u.player));
+        }
+        discard_guild_card(s, u.player, u.card);
+    }
 
     for i in 0..s.round.played.len() {
         let c = s.round.played.as_slice()[i];
-        s.action_discard.push(c.card);
-        // Played face up: the whole table watched this card leave play.
-        if !c.face_down {
-            s.revealed.push(c.card);
+        if let Some(&(_, claimer)) = claimed.iter().find(|(t, _)| *t == c.card) {
+            // A Union pulls the card back into a hand. Everyone saw it, but
+            // it is no longer out of play, so it does not join `revealed` —
+            // the conservative choice loses information rather than
+            // inventing an impossible world.
+            s.player_mut(claimer).hand.push(c.card);
+        } else {
+            s.action_discard.push(c.card);
+            // Played face up: the whole table watched this card leave play.
+            if !c.face_down {
+                s.revealed.push(c.card);
+            }
         }
     }
     s.round.played.clear();
@@ -1934,8 +2126,9 @@ fn end_chapter(s: &mut GameState, v: &VariantDef) {
     if scored(AmbitionId::Tyrant) {
         return_captives(s);
     }
-    // R3: cartelSqueeze — "after scoring, Rivals discard all Material /
-    // Fuel" onto a held Cartel card (p20); no Cartel passive is active yet.
+    // "After scoring, Rivals discard all Material / Fuel" onto a held
+    // Cartel card (p20).
+    cartel_squeeze(s);
 
     for a in 0..AmbitionId::COUNT {
         for i in 0..s.declared[a].len() {
@@ -2193,7 +2386,7 @@ mod tests {
             weapon_spent: false,
             prelude_over: true,
             declared_this_turn: false,
-            prelude_spent: InlineVec::new(),
+            prelude_spent: [0; ResourceType::COUNT],
             secured_this_prelude: InlineVec::new(),
             card_preludes_used: InlineVec::new(),
         };
