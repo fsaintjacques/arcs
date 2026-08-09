@@ -53,6 +53,12 @@ Append-only. One row per (candidate, anchor) pair, produced by
 | 2026-08-09 | mcts (M2 eval) | anchor-mcts300-v0 | 240 | +6.3±13.2 | no | 9.6 | seed 11; promoted on no-regression — see FINDINGS on rollout dilution |
 | 2026-08-09 | greedy `battles:'exact'` | anchor-greedy-v0 | 240 | +27.5±12.6 | yes | 0.7 | seed 11; 6.3 behind the sampler on the same deals — not adopted, see FINDINGS |
 | 2026-08-09 | greedy `battles:'exact'` | anchor-greedy-v0 | 240 | +27.5±14.0 | yes | 1.3 | seed 42; 13.8 behind the sampler — not adopted |
+| 2026-08-09 | greedy-t1 (CEM run 1) | anchor-greedy-v0 | 240 | +45.0±13.9 | yes | 0.2 | seed 11 |
+| 2026-08-09 | greedy-t1 | greedy | 960 | +18.1±6.5 | yes | 0.2 | seed 7, held-out |
+| 2026-08-09 | greedy-t1 | greedy | 960 | +5.3±6.4 | no | 0.2 | seed 99, held-out |
+| 2026-08-09 | mcts-t1 | mcts | 240 | -6.3±13.2 | no | 10.2 | seed 11 |
+| 2026-08-09 | mcts-t1 | anchor-mcts300-v0 | 240 | +11.3±11.9 | no | 9.9 | seed 11 |
+| 2026-08-09 | mcts-t1 | anchor-mcts300-v0 | 240 | +2.5±10.5 | no | 9.6 | seed 42; transfer gate FAILED — weights not promoted, no new anchor |
 | 2026-08-09 | mcts-c | mcts | 240 | +15.0±12.7 | yes | 10.5 | seed 11; pure trim ablation — same budget, same weights |
 | 2026-08-09 | mcts-c | anchor-mcts300-v0 | 240 | +22.5±11.6 | yes | 9.7 | seed 11; PASSED — frozen as anchor-mcts-c-v1 |
 | 2026-08-09 | mcts-c | anchor-mcts300-v0 | 240 | +16.3±13.3 | yes | 11.4 | seed 42, replication |

@@ -12,6 +12,7 @@ const FAST: Record<string, Record<string, unknown>> = {
   mcts: { iterations: 20, rolloutDepth: 8, maxActions: 4, maxDepth: 4 },
   'mcts-fast': { iterations: 20, rolloutDepth: 8, maxActions: 4, maxDepth: 4 },
   'mcts-c': { iterations: 20, rolloutDepth: 8, maxActions: 4, maxDepth: 4 },
+  'mcts-t1': { iterations: 20, rolloutDepth: 8, maxActions: 4, maxDepth: 4 },
   'anchor-mcts300-v0': { iterations: 20, rolloutDepth: 8, maxActions: 4, maxDepth: 4 },
   'anchor-mcts-c-v1': { iterations: 20, rolloutDepth: 8, maxActions: 4, maxDepth: 4 },
 };
