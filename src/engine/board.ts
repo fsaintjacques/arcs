@@ -176,7 +176,17 @@ export function cloneState(s: GameState): GameState {
           cardPreludesUsed: s.turn.cardPreludesUsed.slice(),
         }
       : null,
-    battle: s.battle ? { ...s.battle, dice: { ...s.battle.dice } } : null,
+    battle: s.battle
+      ? {
+          ...s.battle,
+          dice: { ...s.battle.dice },
+          rolled: {
+            assault: s.battle.rolled.assault.slice(),
+            skirmish: s.battle.rolled.skirmish.slice(),
+            raid: s.battle.rolled.raid.slice(),
+          },
+        }
+      : null,
     move: s.move ? { ...s.move } : null,
     declared: {
       tycoon: s.declared.tycoon.slice(),

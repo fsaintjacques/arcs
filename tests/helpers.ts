@@ -128,6 +128,7 @@ export function settleToChapterEnd(f: Fixture, limit = 400): void {
  */
 export function battleState(partial: Partial<BattleState> & Pick<BattleState, 'system' | 'attacker' | 'defender'>): BattleState {
   return {
+    rolled: { assault: [], skirmish: [], raid: [] },
     dice: { assault: 0, skirmish: 0, raid: 0 },
     selfHits: 0,
     intercept: 0,

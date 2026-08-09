@@ -15,3 +15,7 @@
   exactly; the second clicks until a spent pip renders as a filled circle.
 - `undo-barrier-check.mjs` — checks undo is dead at the first decision after
   the chapter deal, the same chance-node path as a battle roll.
+- `dice-preview.mjs` — renders the battle panel off a doctored mid-battle
+  state with one of every die face: `npx tsx scripts/dice-preview.mjs out.png`.
+- `dice-live-check.mjs` — watches bots play until a battle panel shows real
+  rolled dice, then screenshots it and checks the roll reached the log.

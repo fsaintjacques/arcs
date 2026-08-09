@@ -3,6 +3,7 @@ import { agentNames } from '../agents';
 import { actionCard, standings, POWER_THRESHOLD, type GameState } from '../engine';
 import { Board } from './components/Board';
 import { ActionList } from './components/ActionList';
+import { BattlePanel } from './components/Dice';
 import { Ambitions, Court, Hand, Log, Players, Trick } from './components/Panels';
 import { SimPanel } from './components/SimPanel';
 import { actionSystem, PLAYER_NAMES, phaseLabel } from './describe';
@@ -132,16 +133,19 @@ function GameView({ mode }: { mode: 'play' | 'watch' }) {
       </div>
 
       <div className="right">
-        {mode === 'play' && (
-          <ActionList
-            actions={game.actions}
-            state={s}
-            variant={game.variant}
-            selectedSystem={selected}
-            onPlay={game.play}
-            disabled={game.busy}
-          />
-        )}
+        <div className="sticky-stack">
+          {s.battle && <BattlePanel state={s} variant={game.variant} />}
+          {mode === 'play' && (
+            <ActionList
+              actions={game.actions}
+              state={s}
+              variant={game.variant}
+              selectedSystem={selected}
+              onPlay={game.play}
+              disabled={game.busy}
+            />
+          )}
+        </div>
         <Trick state={s} />
         <Ambitions state={s} variant={game.variant} />
         <Players state={s} humanSeats={game.humanSeats} actor={game.actor} />

@@ -130,12 +130,41 @@ button.primary:disabled {
   align-items: start;
 }
 
-/* The action list is what you read on every turn — keep it in view while the
-   left column scrolls past. */
-.right > .actions-panel {
+/* The action list — and during a battle, the dice above it — is what you read
+   on every turn: keep it in view while the left column scrolls past. */
+.right > .sticky-stack {
   position: sticky;
   top: 10px;
   z-index: 3;
+}
+
+.battle-panel .battle-head {
+  margin: 0 0 8px;
+  font-weight: 600;
+}
+
+.dice-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.dice-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.dice-type {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  width: 58px;
+}
+
+.die {
+  display: block;
 }
 
 .board {

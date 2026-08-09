@@ -234,7 +234,17 @@ export function useGame(initial: GameConfig): GameHandle {
       if (node.kind === 'chance') {
         // Dice and deals are reveals by definition.
         revealedRef.current = true;
+        const rolling = s.phase === 'battleRoll' ? s.battle : null;
+        const wasReroll = (rolling?.pendingReroll ?? 0) > 0;
+        const hitsBefore = rolling?.hits ?? 0;
         resolveChanceMut(s, v, gameStream.current.fn);
+        if (rolling) {
+          // Keep the roll readable after the dice leave the table.
+          const text = wasReroll
+            ? `rerolls the blanks: +${rolling.hits - hitsBefore} hit${rolling.hits - hitsBefore === 1 ? '' : 's'}`
+            : `rolls: ${describeRoll(rolling)}`;
+          record(rolling.attacker, text);
+        }
         continue;
       }
       const agent = agentsRef.current[node.player];
@@ -346,6 +356,18 @@ export function useGame(initial: GameConfig): GameHandle {
 
 function describeForLog(a: Action, s: GameState, v: VariantDef): string {
   return describeAction(a, s, v);
+}
+
+/** The roll as words, read at the moment the dice settle (nothing assigned yet). */
+function describeRoll(b: NonNullable<GameState['battle']>): string {
+  const parts = [
+    b.hits > 0 ? `${b.hits} hit${b.hits === 1 ? '' : 's'}` : '',
+    b.buildingHits > 0 ? `${b.buildingHits} building hit${b.buildingHits === 1 ? '' : 's'}` : '',
+    b.keys > 0 ? `${b.keys} key${b.keys === 1 ? '' : 's'}` : '',
+    b.selfHits > 0 ? `${b.selfHits} self-hit${b.selfHits === 1 ? '' : 's'}` : '',
+    b.interceptResolved ? 'intercepted' : '',
+  ].filter(Boolean);
+  return parts.length > 0 ? parts.join(', ') : 'all blanks';
 }
 
 export function finalStandings(s: GameState) {

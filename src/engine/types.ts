@@ -257,6 +257,12 @@ export interface TurnState {
 
 /** A battle mid-resolution. */
 export interface BattleState {
+  /**
+   * The faces showing on the table, as indices into `DIE_FACES[type]`, so the
+   * UI can draw the roll the way the physical dice sit. A Skirmishers reroll
+   * swaps the named blanks for their new faces; everything else stands.
+   */
+  rolled: Record<DieType, number[]>;
   system: number;
   attacker: number;
   defender: number;
