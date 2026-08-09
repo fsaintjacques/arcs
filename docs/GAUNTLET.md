@@ -50,6 +50,8 @@ Append-only. One row per (candidate, anchor) pair, produced by
 | 2026-08-09 | greedy (M2 eval) | anchor-greedy-v0 | 240 | +33.8±10.8 | yes | 0.2 | seed 11 |
 | 2026-08-09 | greedy (M2 eval) | anchor-greedy-v0 | 240 | +41.3±14.4 | yes | 0.2 | seed 42, replication |
 | 2026-08-09 | mcts (M2 eval) | anchor-mcts300-v0 | 240 | +6.3±13.2 | no | 9.6 | seed 11; promoted on no-regression — see FINDINGS on rollout dilution |
+| 2026-08-09 | greedy `battles:'exact'` | anchor-greedy-v0 | 240 | +27.5±12.6 | yes | 0.7 | seed 11; 6.3 behind the sampler on the same deals — not adopted, see FINDINGS |
+| 2026-08-09 | greedy `battles:'exact'` | anchor-greedy-v0 | 240 | +27.5±14.0 | yes | 1.3 | seed 42; 13.8 behind the sampler — not adopted |
 
 ## Human validation
 
