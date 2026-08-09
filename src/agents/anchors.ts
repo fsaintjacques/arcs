@@ -44,7 +44,40 @@ export const anchorWeightsV0: Weights = {
 };
 
 /**
+ * The M2 evaluation weights as frozen with `anchor-mcts-c-v1` (2026-08-09):
+ * the hand-quality/scarcity terms at their hand-set values, before any
+ * tuned weights are promoted.
+ */
+export const anchorWeightsV1: Weights = {
+  power: 1,
+  declaredLead: 0.9,
+  declaredContest: 0.35,
+  latentAmbition: 0.35,
+  freshShip: 0.5,
+  damagedShip: 0.2,
+  starport: 1.4,
+  city: 2.2,
+  control: 0.5,
+  resourceSlot: 0.4,
+  resourceValue: { material: 0.65, fuel: 0.65, weapon: 0.5, relic: 0.85, psionic: 0.85 },
+  courtAgent: 0.35,
+  courtLead: 1.1,
+  guildCard: 1.0,
+  initiative: 1.2,
+  handCard: 0.1,
+  handPips: 0.15,
+  handActionable: 0.1,
+  handHighCard: 0.3,
+  declarableLead: 0.5,
+  outrage: 1.0,
+};
+
+/**
  * The gauntlet ladder, oldest to newest. A candidate must beat the newest
  * anchor separated and regress against none of the older ones.
  */
-export const anchorLadder: string[] = ['anchor-greedy-v0', 'anchor-mcts300-v0'];
+export const anchorLadder: string[] = [
+  'anchor-greedy-v0',
+  'anchor-mcts300-v0',
+  'anchor-mcts-c-v1',
+];

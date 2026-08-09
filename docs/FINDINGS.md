@@ -615,6 +615,46 @@ encodings distinguish cases stringify only distinguishes by accident
 keyings are injective over full-game action sweeps (asserted in tests), so
 the search tree is identical.
 
+## Informed trimming: the first separated search-tier gain
+
+`narrow(12)` was the ranked #1 lost-strength source: at nodes offering a
+hundred actions it kept the first twelve in enumeration order. The
+replacement (`src/agents/candidates.ts`) keeps narrow's skeleton —
+deterministic, output ⊆ input, every kind stays visible — and re-orders each
+kind so the round-robin's early picks are the ones worth a search budget.
+
+Getting the ordering right was measured, not guessed, and the first guess
+lost. A new coverage instrument replays seeded games and asks, at every wide
+node: can a 12-action trim still reach the best 1-ply value a full scan
+finds? Blind `narrow` scores **73.0%**. A hand-tuned positional heuristic
+("prefer contact, big fleets toward rivals") scored **62.5%** — *worse than
+blind*, because the enumeration order narrow inherits (ships ascending)
+accidentally matches what the evaluation actually wants: small detachments
+that claim empty systems without giving up control at home.
+
+The fix came from asking what a bare move can even change in the
+evaluation: nothing but **control**. So the move ordering now computes the
+exact control swing per move — the same strict-majority arithmetic as
+`controlOf`, applied to both endpoints, rivals included — and uses the
+positional heuristic only to break ties. Coverage: **98.3%**. Battle splits
+are ranked by exact dice expectations (E[hits] − 1.2·E[selfHits], keys when
+there is something to raid), Farseers subsets by pips discarded, Pressgang
+multisets by scarcity prices.
+
+Strength, 240 paired games per row: `mcts-c` beats the *same-budget* `mcts`
+— identical everything but the trim — by **+15.0 ± 12.7, separated**, and
+the anchor by **+22.5 ± 11.6** (replicated **+16.3 ± 13.3** at a second
+seed), at ~10 ms/decision. After three eval improvements that paid at 1 ply
+and drowned in rollouts, the first change *inside the search* is also the
+first separated gain at the search tier. Frozen as `anchor-mcts-c-v1`.
+
+Two durable lessons. A trim heuristic must be measured against the
+evaluation it serves — intuition about "interesting" actions lost to blind
+enumeration order. And coverage must be scored against best *value*, not
+best *action*: ties are everywhere (most moves swing nothing), and an
+identity metric charges the trim for returning a different member of the
+same optimum.
+
 ## Open questions
 
 - **Ambition timing, the initiative half.** The `declarableLead` term now
