@@ -1,0 +1,250 @@
+[
+ {
+  "id": 0,
+  "number": 1,
+  "name": "Loyal Engineers",
+  "kind": "guild",
+  "suit": "material",
+  "raidCost": 3
+ },
+ {
+  "id": 1,
+  "number": 2,
+  "name": "Mining Interest",
+  "kind": "guild",
+  "suit": "material",
+  "raidCost": 2
+ },
+ {
+  "id": 2,
+  "number": 3,
+  "name": "Material Cartel",
+  "kind": "guild",
+  "suit": "material",
+  "raidCost": 2
+ },
+ {
+  "id": 3,
+  "number": 4,
+  "name": "Admin Union",
+  "kind": "guild",
+  "suit": "material",
+  "raidCost": 2
+ },
+ {
+  "id": 4,
+  "number": 5,
+  "name": "Construction Union",
+  "kind": "guild",
+  "suit": "material",
+  "raidCost": 2
+ },
+ {
+  "id": 5,
+  "number": 6,
+  "name": "Fuel Cartel",
+  "kind": "guild",
+  "suit": "fuel",
+  "raidCost": 2
+ },
+ {
+  "id": 6,
+  "number": 7,
+  "name": "Loyal Pilots",
+  "kind": "guild",
+  "suit": "fuel",
+  "raidCost": 3
+ },
+ {
+  "id": 7,
+  "number": 8,
+  "name": "Gatekeepers",
+  "kind": "guild",
+  "suit": "fuel",
+  "raidCost": 2
+ },
+ {
+  "id": 8,
+  "number": 9,
+  "name": "Shipping Interest",
+  "kind": "guild",
+  "suit": "fuel",
+  "raidCost": 2
+ },
+ {
+  "id": 9,
+  "number": 10,
+  "name": "Spacing Union",
+  "kind": "guild",
+  "suit": "fuel",
+  "raidCost": 2
+ },
+ {
+  "id": 10,
+  "number": 11,
+  "name": "Arms Union",
+  "kind": "guild",
+  "suit": "weapon",
+  "raidCost": 2
+ },
+ {
+  "id": 11,
+  "number": 12,
+  "name": "Prison Wardens",
+  "kind": "guild",
+  "suit": "weapon",
+  "raidCost": 2
+ },
+ {
+  "id": 12,
+  "number": 13,
+  "name": "Skirmishers",
+  "kind": "guild",
+  "suit": "weapon",
+  "raidCost": 2
+ },
+ {
+  "id": 13,
+  "number": 14,
+  "name": "Court Enforcers",
+  "kind": "guild",
+  "suit": "weapon",
+  "raidCost": 2
+ },
+ {
+  "id": 14,
+  "number": 15,
+  "name": "Loyal Marines",
+  "kind": "guild",
+  "suit": "weapon",
+  "raidCost": 3
+ },
+ {
+  "id": 15,
+  "number": 16,
+  "name": "Lattice Spies",
+  "kind": "guild",
+  "suit": "psionic",
+  "raidCost": 2
+ },
+ {
+  "id": 16,
+  "number": 17,
+  "name": "Farseers",
+  "kind": "guild",
+  "suit": "psionic",
+  "raidCost": 2
+ },
+ {
+  "id": 17,
+  "number": 18,
+  "name": "Secret Order",
+  "kind": "guild",
+  "suit": "psionic",
+  "raidCost": 2
+ },
+ {
+  "id": 18,
+  "number": 19,
+  "name": "Loyal Empaths",
+  "kind": "guild",
+  "suit": "psionic",
+  "raidCost": 3
+ },
+ {
+  "id": 19,
+  "number": 20,
+  "name": "Silver-Tongues",
+  "kind": "guild",
+  "suit": "psionic",
+  "raidCost": 2
+ },
+ {
+  "id": 20,
+  "number": 21,
+  "name": "Loyal Keepers",
+  "kind": "guild",
+  "suit": "relic",
+  "raidCost": 3
+ },
+ {
+  "id": 21,
+  "number": 22,
+  "name": "Sworn Guardians",
+  "kind": "guild",
+  "suit": "relic",
+  "raidCost": 1
+ },
+ {
+  "id": 22,
+  "number": 23,
+  "name": "Elder Broker",
+  "kind": "guild",
+  "suit": "relic",
+  "raidCost": 2
+ },
+ {
+  "id": 23,
+  "number": 24,
+  "name": "Relic Fence",
+  "kind": "guild",
+  "suit": "relic",
+  "raidCost": 2
+ },
+ {
+  "id": 24,
+  "number": 25,
+  "name": "Galactic Bards",
+  "kind": "guild",
+  "suit": "relic",
+  "raidCost": 1
+ },
+ {
+  "id": 25,
+  "number": 26,
+  "name": "Mass Uprising",
+  "kind": "vox",
+  "suit": null,
+  "raidCost": 0
+ },
+ {
+  "id": 26,
+  "number": 27,
+  "name": "Populist Demands",
+  "kind": "vox",
+  "suit": null,
+  "raidCost": 0
+ },
+ {
+  "id": 27,
+  "number": 28,
+  "name": "Outrage Spreads",
+  "kind": "vox",
+  "suit": null,
+  "raidCost": 0
+ },
+ {
+  "id": 28,
+  "number": 29,
+  "name": "Song of Freedom",
+  "kind": "vox",
+  "suit": null,
+  "raidCost": 0
+ },
+ {
+  "id": 29,
+  "number": 30,
+  "name": "Guild Struggle",
+  "kind": "vox",
+  "suit": null,
+  "raidCost": 0
+ },
+ {
+  "id": 30,
+  "number": 31,
+  "name": "Call to Action",
+  "kind": "vox",
+  "suit": null,
+  "raidCost": 0
+ }
+]

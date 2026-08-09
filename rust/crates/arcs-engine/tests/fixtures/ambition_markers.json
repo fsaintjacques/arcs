@@ -1,0 +1,32 @@
+[
+ {
+  "blue": {
+   "first": 5,
+   "second": 3
+  },
+  "orange": {
+   "first": 9,
+   "second": 5
+  }
+ },
+ {
+  "blue": {
+   "first": 3,
+   "second": 2
+  },
+  "orange": {
+   "first": 6,
+   "second": 4
+  }
+ },
+ {
+  "blue": {
+   "first": 2,
+   "second": 0
+  },
+  "orange": {
+   "first": 4,
+   "second": 2
+  }
+ }
+]

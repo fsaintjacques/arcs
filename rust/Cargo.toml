@@ -1,0 +1,11 @@
+[workspace]
+resolver = "3"
+members = ["crates/arcs-engine"]
+
+[workspace.package]
+edition = "2024"
+license = "MIT"
+publish = false
+
+[workspace.lints.clippy]
+all = { level = "warn", priority = -1 }

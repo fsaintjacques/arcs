@@ -1,0 +1,342 @@
+[
+ {
+  "id": 0,
+  "cluster": 0,
+  "slot": 0,
+  "kind": "gate",
+  "planetType": null,
+  "buildingSlots": 0,
+  "adjacent": [
+   20,
+   4,
+   1,
+   2,
+   3
+  ],
+  "label": "1"
+ },
+ {
+  "id": 1,
+  "cluster": 0,
+  "slot": 1,
+  "kind": "planet",
+  "planetType": "weapon",
+  "buildingSlots": 2,
+  "adjacent": [
+   0,
+   2
+  ],
+  "label": "1.1"
+ },
+ {
+  "id": 2,
+  "cluster": 0,
+  "slot": 2,
+  "kind": "planet",
+  "planetType": "fuel",
+  "buildingSlots": 1,
+  "adjacent": [
+   0,
+   1,
+   3
+  ],
+  "label": "1.2"
+ },
+ {
+  "id": 3,
+  "cluster": 0,
+  "slot": 3,
+  "kind": "planet",
+  "planetType": "material",
+  "buildingSlots": 2,
+  "adjacent": [
+   0,
+   2
+  ],
+  "label": "1.3"
+ },
+ {
+  "id": 4,
+  "cluster": 1,
+  "slot": 0,
+  "kind": "gate",
+  "planetType": null,
+  "buildingSlots": 0,
+  "adjacent": [
+   0,
+   8,
+   5,
+   6,
+   7
+  ],
+  "label": "2"
+ },
+ {
+  "id": 5,
+  "cluster": 1,
+  "slot": 1,
+  "kind": "planet",
+  "planetType": "psionic",
+  "buildingSlots": 1,
+  "adjacent": [
+   4,
+   6
+  ],
+  "label": "2.1"
+ },
+ {
+  "id": 6,
+  "cluster": 1,
+  "slot": 2,
+  "kind": "planet",
+  "planetType": "weapon",
+  "buildingSlots": 1,
+  "adjacent": [
+   4,
+   5,
+   7
+  ],
+  "label": "2.2"
+ },
+ {
+  "id": 7,
+  "cluster": 1,
+  "slot": 3,
+  "kind": "planet",
+  "planetType": "relic",
+  "buildingSlots": 2,
+  "adjacent": [
+   4,
+   6,
+   9
+  ],
+  "label": "2.3"
+ },
+ {
+  "id": 8,
+  "cluster": 2,
+  "slot": 0,
+  "kind": "gate",
+  "planetType": null,
+  "buildingSlots": 0,
+  "adjacent": [
+   4,
+   12,
+   9,
+   10,
+   11
+  ],
+  "label": "3"
+ },
+ {
+  "id": 9,
+  "cluster": 2,
+  "slot": 1,
+  "kind": "planet",
+  "planetType": "material",
+  "buildingSlots": 1,
+  "adjacent": [
+   8,
+   10,
+   7
+  ],
+  "label": "3.1"
+ },
+ {
+  "id": 10,
+  "cluster": 2,
+  "slot": 2,
+  "kind": "planet",
+  "planetType": "fuel",
+  "buildingSlots": 1,
+  "adjacent": [
+   8,
+   9,
+   11
+  ],
+  "label": "3.2"
+ },
+ {
+  "id": 11,
+  "cluster": 2,
+  "slot": 3,
+  "kind": "planet",
+  "planetType": "weapon",
+  "buildingSlots": 2,
+  "adjacent": [
+   8,
+   10
+  ],
+  "label": "3.3"
+ },
+ {
+  "id": 12,
+  "cluster": 3,
+  "slot": 0,
+  "kind": "gate",
+  "planetType": null,
+  "buildingSlots": 0,
+  "adjacent": [
+   8,
+   16,
+   13,
+   14,
+   15
+  ],
+  "label": "4"
+ },
+ {
+  "id": 13,
+  "cluster": 3,
+  "slot": 1,
+  "kind": "planet",
+  "planetType": "relic",
+  "buildingSlots": 2,
+  "adjacent": [
+   12,
+   14
+  ],
+  "label": "4.1"
+ },
+ {
+  "id": 14,
+  "cluster": 3,
+  "slot": 2,
+  "kind": "planet",
+  "planetType": "fuel",
+  "buildingSlots": 2,
+  "adjacent": [
+   12,
+   13,
+   15
+  ],
+  "label": "4.2"
+ },
+ {
+  "id": 15,
+  "cluster": 3,
+  "slot": 3,
+  "kind": "planet",
+  "planetType": "material",
+  "buildingSlots": 1,
+  "adjacent": [
+   12,
+   14
+  ],
+  "label": "4.3"
+ },
+ {
+  "id": 16,
+  "cluster": 4,
+  "slot": 0,
+  "kind": "gate",
+  "planetType": null,
+  "buildingSlots": 0,
+  "adjacent": [
+   12,
+   20,
+   17,
+   18,
+   19
+  ],
+  "label": "5"
+ },
+ {
+  "id": 17,
+  "cluster": 4,
+  "slot": 1,
+  "kind": "planet",
+  "planetType": "weapon",
+  "buildingSlots": 1,
+  "adjacent": [
+   16,
+   18
+  ],
+  "label": "5.1"
+ },
+ {
+  "id": 18,
+  "cluster": 4,
+  "slot": 2,
+  "kind": "planet",
+  "planetType": "relic",
+  "buildingSlots": 1,
+  "adjacent": [
+   16,
+   17,
+   19
+  ],
+  "label": "5.2"
+ },
+ {
+  "id": 19,
+  "cluster": 4,
+  "slot": 3,
+  "kind": "planet",
+  "planetType": "psionic",
+  "buildingSlots": 2,
+  "adjacent": [
+   16,
+   18,
+   21
+  ],
+  "label": "5.3"
+ },
+ {
+  "id": 20,
+  "cluster": 5,
+  "slot": 0,
+  "kind": "gate",
+  "planetType": null,
+  "buildingSlots": 0,
+  "adjacent": [
+   16,
+   0,
+   21,
+   22,
+   23
+  ],
+  "label": "6"
+ },
+ {
+  "id": 21,
+  "cluster": 5,
+  "slot": 1,
+  "kind": "planet",
+  "planetType": "material",
+  "buildingSlots": 1,
+  "adjacent": [
+   20,
+   22,
+   19
+  ],
+  "label": "6.1"
+ },
+ {
+  "id": 22,
+  "cluster": 5,
+  "slot": 2,
+  "kind": "planet",
+  "planetType": "fuel",
+  "buildingSlots": 2,
+  "adjacent": [
+   20,
+   21,
+   23
+  ],
+  "label": "6.2"
+ },
+ {
+  "id": 23,
+  "cluster": 5,
+  "slot": 3,
+  "kind": "planet",
+  "planetType": "psionic",
+  "buildingSlots": 1,
+  "adjacent": [
+   20,
+   22
+  ],
+  "label": "6.3"
+ }
+]
