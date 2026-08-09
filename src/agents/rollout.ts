@@ -2,7 +2,7 @@
  * Shared plumbing for the sampling agents: playing a position out with a cheap
  * policy, and turning the reached position into a value for every seat.
  */
-import { applyActionMut, getPending, resolveChanceMut } from '../engine';
+import { applyActionMut, getPending, resolveChanceMut, standings } from '../engine';
 import type { GameState, RNG, VariantDef } from '../engine';
 import { evaluate, type Weights } from './eval';
 
@@ -20,12 +20,16 @@ export function valueVector(s: GameState, v: VariantDef, w: Weights): number[] {
   return shifted.map((x) => x / total);
 }
 
-/** Terminal value: 1 for the winner, 0 for everyone else. */
+/**
+ * Terminal value: 1 for the winner, 0 for everyone else. Power ties are broken
+ * by turn order from the initiative holder — exactly the rule the table plays
+ * by (`standings`, p19) — so search backs up the result the game would
+ * actually award rather than splitting a tie the rules never split.
+ */
 export function terminalVector(s: GameState): number[] {
-  const best = Math.max(...s.playerStates.map((p) => p.power));
-  const winners: number[] = s.playerStates.map((p) => (p.power === best ? 1 : 0));
-  const n = winners.reduce((a, b) => a + b, 0);
-  return winners.map((x) => x / n);
+  const out: number[] = s.playerStates.map(() => 0);
+  out[standings(s)[0].player] = 1;
+  return out;
 }
 
 export interface RolloutOpts {
