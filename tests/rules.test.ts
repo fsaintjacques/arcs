@@ -4,7 +4,9 @@ import {
   actionCard,
   ambitionCount,
   AMBITION_MARKERS,
+  ASSAULT_FACES,
   COURT_DECK,
+  DIE_FACES,
   controlOf,
   makeVariant,
   mulberry32,
@@ -675,6 +677,42 @@ describe('battle (p14-p16)', () => {
     apply(f, { t: 'beginActions' });
     return { f, player, rival, system };
   }
+
+  it('keeps the rolled faces on the table, consistent with the totals', () => {
+    // The UI draws the roll from `battle.rolled`; if it drifts from the
+    // counters the player is shown dice that did not happen.
+    const { f, rival, system } = battleSetup(65, { defenderBuilding: true });
+    const act = find<Extract<Action, { t: 'battle' }>>(
+      actions(f),
+      (a) => a.t === 'battle' && a.raid > 0 && a.assault > 0,
+    );
+    apply(f, act);
+    settle(f);
+
+    const b = f.s.battle!;
+    expect(b.rolled.assault).toHaveLength(act.assault);
+    expect(b.rolled.skirmish).toHaveLength(act.skirmish);
+    expect(b.rolled.raid).toHaveLength(act.raid);
+
+    // Recompute every counter from the faces shown.
+    const sum = (type: 'assault' | 'skirmish' | 'raid', key: keyof (typeof ASSAULT_FACES)[number]) =>
+      b.rolled[type].reduce((n, idx) => n + (DIE_FACES[type][idx][key] as number), 0);
+    const totals = {
+      hits: sum('assault', 'hits') + sum('skirmish', 'hits') + sum('raid', 'hits'),
+      buildingHits: sum('assault', 'buildingHits') + sum('raid', 'buildingHits'),
+      keys: sum('assault', 'keys') + sum('raid', 'keys'),
+      selfHits: sum('assault', 'selfHits') + sum('raid', 'selfHits'),
+      intercept: sum('assault', 'intercept') + sum('raid', 'intercept'),
+    };
+    expect(b.hits).toBe(totals.hits);
+    expect(b.buildingHits).toBe(totals.buildingHits);
+    expect(b.keys).toBe(totals.keys);
+    // Intercept converts into self-hits once, immediately (p14).
+    expect(b.selfHits).toBe(
+      totals.selfHits + (totals.intercept > 0 ? f.s.systems[system].fresh[rival] : 0),
+    );
+    expect(b.interceptResolved).toBe(totals.intercept > 0);
+  });
 
   it('never offers more dice than attacking ships', () => {
     const { f, system } = battleSetup(61);

@@ -79,43 +79,57 @@ export interface RollTotals {
   skirmishBlanks: number;
 }
 
-export function rollBattle(dice: Record<DieType, number>, rng: RNG): RollTotals {
-  const totals: RollTotals = {
+export interface RollResult extends RollTotals {
+  /** The face each die landed on, as indices into `DIE_FACES[type]`. */
+  faces: Record<DieType, number[]>;
+}
+
+export function rollBattle(dice: Record<DieType, number>, rng: RNG): RollResult {
+  const result: RollResult = {
     selfHits: 0,
     intercept: 0,
     hits: 0,
     buildingHits: 0,
     keys: 0,
     skirmishBlanks: 0,
+    faces: { assault: [], skirmish: [], raid: [] },
   };
   for (const type of ['assault', 'skirmish', 'raid'] as DieType[]) {
+    const all = DIE_FACES[type];
     for (let i = 0; i < dice[type]; i++) {
-      const f = rollDie(type, rng);
-      totals.selfHits += f.selfHits;
-      totals.intercept += f.intercept;
-      totals.hits += f.hits;
-      totals.buildingHits += f.buildingHits;
-      totals.keys += f.keys;
-      if (type === 'skirmish' && f.hits === 0) totals.skirmishBlanks++;
+      const idx = Math.floor(rng() * all.length);
+      const f = all[idx];
+      result.faces[type].push(idx);
+      result.selfHits += f.selfHits;
+      result.intercept += f.intercept;
+      result.hits += f.hits;
+      result.buildingHits += f.buildingHits;
+      result.keys += f.keys;
+      if (type === 'skirmish' && f.hits === 0) result.skirmishBlanks++;
     }
   }
-  return totals;
+  return result;
 }
 
 /**
- * Reroll `count` blank skirmish dice, returning the hits gained and how many
- * came up blank again. Only blanks are ever rerolled — see the ruling in
- * game.ts — so a reroll can only ever help.
+ * Reroll `count` blank skirmish dice, returning the hits gained, how many
+ * came up blank again, and the new faces. Only blanks are ever rerolled — see
+ * the ruling in game.ts — so a reroll can only ever help.
  */
-export function rerollSkirmish(count: number, rng: RNG): { hits: number; blanks: number } {
+export function rerollSkirmish(
+  count: number,
+  rng: RNG,
+): { hits: number; blanks: number; faces: number[] } {
   let hits = 0;
   let blanks = 0;
+  const faces: number[] = [];
   for (let i = 0; i < count; i++) {
-    const f = rollDie('skirmish', rng);
-    if (f.hits > 0) hits += f.hits;
+    const idx = Math.floor(rng() * SKIRMISH_FACES.length);
+    faces.push(idx);
+    if (SKIRMISH_FACES[idx].hits > 0) hits += SKIRMISH_FACES[idx].hits;
     else blanks++;
   }
-  return { hits, blanks };
+  return { hits, blanks, faces };
 }
 
 /** Expected values per die, for heuristic bots. */

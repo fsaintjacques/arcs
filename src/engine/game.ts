@@ -39,7 +39,7 @@ import {
 } from './board';
 import { actionCard, SUIT_ACTIONS } from './cards';
 import { courtCard } from './court';
-import { DICE_PER_TYPE, rerollSkirmish, rollBattle } from './dice';
+import { DICE_PER_TYPE, rerollSkirmish, rollBattle, SKIRMISH_FACES } from './dice';
 import { flipLowestUnflipped, highestAvailable, scoreChapter } from './ambitions';
 import { isGate } from './map';
 import { compactResources, heldResources, openResourceSlots, raidCost } from './playerBoard';
@@ -523,7 +523,17 @@ export function resolveChanceMut(s: GameState, v: VariantDef, rng: RNG): void {
     // rest of the roll stands, and no new intercept can appear because the
     // skirmish die has no intercept face.
     if (b.pendingReroll > 0) {
-      const { hits, blanks } = rerollSkirmish(b.pendingReroll, rng);
+      const { hits, blanks, faces } = rerollSkirmish(b.pendingReroll, rng);
+      // Swap the named blanks for their new faces; the rest of the roll stands.
+      let toSwap = b.pendingReroll;
+      b.rolled.skirmish = b.rolled.skirmish.filter((idx) => {
+        if (toSwap > 0 && SKIRMISH_FACES[idx].hits === 0) {
+          toSwap--;
+          return false;
+        }
+        return true;
+      });
+      b.rolled.skirmish.push(...faces);
       b.hits += hits;
       b.skirmishBlanks = b.skirmishBlanks - b.pendingReroll + blanks;
       b.pendingReroll = 0;
@@ -534,6 +544,7 @@ export function resolveChanceMut(s: GameState, v: VariantDef, rng: RNG): void {
     }
 
     const totals = rollBattle(b.dice, rng);
+    b.rolled = totals.faces;
     b.selfHits = totals.selfHits;
     b.intercept = totals.intercept;
     b.hits = totals.hits;
@@ -1016,6 +1027,7 @@ function performAction(s: GameState, v: VariantDef, a: Action): void {
     case 'battle': {
       payFor(s, 'battle');
       s.battle = {
+        rolled: { assault: [], skirmish: [], raid: [] },
         system: a.system,
         attacker: player,
         defender: a.defender,
