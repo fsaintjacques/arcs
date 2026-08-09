@@ -6,20 +6,29 @@
 //! vocabulary, primitives and const data tables — the state machine arrives
 //! in R1+.
 
+pub mod action;
 pub mod ambitions;
 pub mod cards;
 pub mod court;
 pub mod dice;
+pub mod game;
 pub mod inline_vec;
 pub mod map;
 pub mod player_board;
 pub mod rng;
 pub mod setup;
+pub mod state;
 pub mod types;
 
+pub use action::{Action, CardActionName, FollowMode, HitTarget, decode_action, encode_action};
+pub use game::{
+    Pending, RuleError, Standing, apply_action_mut, get_pending, legal_actions, new_game,
+    resolve_chance_mut, standings, winner,
+};
 pub use inline_vec::InlineVec;
 pub use rng::{ChanceSource, Rng, SplitMix64};
 pub use setup::{SetupMode, VariantDef, make_variant};
+pub use state::{GameState, PlayerState, TurnState};
 pub use types::{
     ActionCardId, ActionKind, AmbitionId, BuildingKind, CourtCardId, DieType, Phase, PlayMode,
     Player, ResourceType, Suit, SystemId,

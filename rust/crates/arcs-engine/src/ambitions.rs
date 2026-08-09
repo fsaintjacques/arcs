@@ -37,6 +37,44 @@ const fn marker(bf: u8, bs: u8, of: u8, os: u8) -> AmbitionMarkerDef {
 pub const AMBITION_MARKERS: [AmbitionMarkerDef; AMBITION_MARKER_COUNT] =
     [marker(5, 3, 9, 5), marker(3, 2, 6, 4), marker(2, 0, 4, 2)];
 
+/// "Take the highest-number ambition marker from the Available Markers
+/// section" (p9) — highest by current first-place Power.
+/// (`highestAvailable` in ambitions.ts.)
+pub fn highest_available(s: &crate::state::GameState, v: &crate::setup::VariantDef) -> Option<u8> {
+    let mut best = None;
+    let mut best_value = 0i16;
+    for &i in s.available_markers.iter() {
+        let value =
+            marker_value(&v.ambition_markers, i as usize, s.flipped[i as usize]).first as i16;
+        if value > best_value {
+            best_value = value;
+            best = Some(i);
+        }
+    }
+    best
+}
+
+/// "Flip over the ambition marker with the lowest Power that hasn't been
+/// flipped yet to its side with more Power" (p19).
+/// (`flipLowestUnflipped` in ambitions.ts.)
+pub fn flip_lowest_unflipped(s: &mut crate::state::GameState, v: &crate::setup::VariantDef) {
+    let mut target = None;
+    let mut lowest = u8::MAX;
+    for i in 0..v.ambition_markers.len() {
+        if s.flipped[i] {
+            continue;
+        }
+        let value = v.ambition_markers[i].blue.first;
+        if value < lowest {
+            lowest = value;
+            target = Some(i);
+        }
+    }
+    if let Some(i) = target {
+        s.flipped[i] = true;
+    }
+}
+
 /// Power a marker is currently worth, given whether it has been flipped.
 #[inline]
 pub const fn marker_value(

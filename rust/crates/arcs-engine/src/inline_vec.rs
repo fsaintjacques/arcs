@@ -68,6 +68,31 @@ impl<T: Copy, const N: usize> InlineVec<T, N> {
     }
 
     #[inline]
+    pub fn is_full(&self) -> bool {
+        self.len as usize == N
+    }
+
+    /// Remove and return the element at `index`, shifting the tail left
+    /// (the `Vec::remove` / JS `splice(index, 1)` shape).
+    pub fn remove(&mut self, index: usize) -> T {
+        assert!(index < self.len as usize, "InlineVec::remove out of bounds");
+        let item = self.items[index];
+        for i in index..self.len as usize - 1 {
+            self.items[i] = self.items[i + 1];
+        }
+        self.len -= 1;
+        item
+    }
+
+    /// Index of the first element equal to `item`.
+    pub fn position(&self, item: &T) -> Option<usize>
+    where
+        T: PartialEq,
+    {
+        self.as_slice().iter().position(|x| x == item)
+    }
+
+    #[inline]
     pub fn is_empty(&self) -> bool {
         self.len == 0
     }
