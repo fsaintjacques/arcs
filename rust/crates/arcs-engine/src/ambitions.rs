@@ -97,11 +97,10 @@ pub const fn marker_value(
 // Counting ambitions
 // ---------------------------------------------------------------------------
 
-/// Resource + Guild-card icons of the given types a player holds.
-/// (`icons` in ambitions.ts. R3: add the resources sitting on a held Cartel
-/// card — "you add it to Tycoon but can't spend it" (p20) — once the Cartel
-/// passive is active.)
-fn icons(p: &PlayerState, types: &[ResourceType]) -> u8 {
+/// Resource + Guild-card icons of the given types a player holds. `cartel`
+/// adds the resources sitting on a Cartel card this player holds: "you add
+/// it to Tycoon but can't spend it" (p20). (`icons` in ambitions.ts.)
+fn icons(p: &PlayerState, cartel: &crate::types::ByResource<u8>, types: &[ResourceType]) -> u8 {
     let mut n = 0;
     for r in p.resources.iter().flatten() {
         if types.contains(r) {
@@ -115,20 +114,33 @@ fn icons(p: &PlayerState, types: &[ResourceType]) -> u8 {
             n += 1;
         }
     }
+    for &t in types {
+        n += cartel[t.as_index()];
+    }
     n
 }
 
-/// What a player has toward one ambition (p18).
-/// (`ambitionCount` in ambitions.ts.)
-pub fn ambition_count(p: &PlayerState, ambition: AmbitionId) -> u8 {
+/// What a player has toward one ambition (p18), including Cartel supplies.
+/// (`ambitionCount` with the `cartel` argument in ambitions.ts.)
+pub fn ambition_count_with(
+    p: &PlayerState,
+    ambition: AmbitionId,
+    cartel: &crate::types::ByResource<u8>,
+) -> u8 {
     use ResourceType::{Fuel, Material, Psionic, Relic};
     match ambition {
-        AmbitionId::Tycoon => icons(p, &[Material, Fuel]),
+        AmbitionId::Tycoon => icons(p, cartel, &[Material, Fuel]),
         AmbitionId::Tyrant => p.captive_count(),
         AmbitionId::Warlord => p.trophy_count(),
-        AmbitionId::Keeper => icons(p, &[Relic]),
-        AmbitionId::Empath => icons(p, &[Psionic]),
+        AmbitionId::Keeper => icons(p, cartel, &[Relic]),
+        AmbitionId::Empath => icons(p, cartel, &[Psionic]),
     }
+}
+
+/// [`ambition_count_with`] without Cartel supplies (the TS call shape with
+/// the optional `cartel` argument omitted).
+pub fn ambition_count(p: &PlayerState, ambition: AmbitionId) -> u8 {
+    ambition_count_with(p, ambition, &[0; ResourceType::COUNT])
 }
 
 /// One scored ambition box. Seats beyond `players` stay zero.
@@ -173,7 +185,8 @@ pub fn score_ambition(
     let players = s.players as usize;
     let mut counts = [0u8; MAX_SEATS];
     for (i, c) in counts.iter_mut().enumerate().take(players) {
-        *c = ambition_count(&s.player_states[i], ambition);
+        let cartel = crate::powers::cartel_icons(s, Player(i as u8));
+        *c = ambition_count_with(&s.player_states[i], ambition, &cartel);
     }
     let phantom = s.phantom[ambition.as_index()];
 

@@ -44,13 +44,17 @@ impl<T: Copy, const N: usize> InlineVec<T, N> {
         }
     }
 
+    /// Append an item. Overflow panics in every build, release included: a
+    /// capacity that turns out to be too small is a rules bug, and dropping
+    /// the item silently corrupts state instead of reporting it. A
+    /// Prelude-spend leak hid behind a debug-only assertion exactly this way —
+    /// the token left its slot and never reached the return list. Callers that
+    /// genuinely may discard (the `declines` record) test `is_full` first.
     #[inline]
     pub fn push(&mut self, item: T) {
-        debug_assert!((self.len as usize) < N, "InlineVec overflow (cap {N})");
-        if (self.len as usize) < N {
-            self.items[self.len as usize] = item;
-            self.len += 1;
-        }
+        assert!((self.len as usize) < N, "InlineVec overflow (cap {N})");
+        self.items[self.len as usize] = item;
+        self.len += 1;
     }
 
     #[inline]
@@ -82,6 +86,27 @@ impl<T: Copy, const N: usize> InlineVec<T, N> {
         }
         self.len -= 1;
         item
+    }
+
+    /// Insert `item` at `index`, shifting the tail right (the JS
+    /// `splice(index, 0, item)` / `unshift` shape). Overflow drops the item,
+    /// as in `push`.
+    pub fn insert(&mut self, index: usize, item: T) {
+        assert!(
+            index <= self.len as usize,
+            "InlineVec::insert out of bounds"
+        );
+        debug_assert!((self.len as usize) < N, "InlineVec overflow (cap {N})");
+        if (self.len as usize) >= N {
+            return;
+        }
+        let mut i = self.len as usize;
+        while i > index {
+            self.items[i] = self.items[i - 1];
+            i -= 1;
+        }
+        self.items[index] = item;
+        self.len += 1;
     }
 
     /// Index of the first element equal to `item`.
@@ -242,6 +267,17 @@ mod tests {
         let mut v: InlineVec<u8, 8> = InlineVec::from_slice(&[1, 2, 3, 4, 5, 6]);
         v.retain(|x| x % 2 == 0);
         assert_eq!(v.as_slice(), &[2, 4, 6]);
+    }
+
+    #[test]
+    fn insert_shifts_the_tail() {
+        let mut v: InlineVec<u8, 6> = InlineVec::from_slice(&[2, 3, 4]);
+        v.insert(0, 1); // unshift
+        assert_eq!(v.as_slice(), &[1, 2, 3, 4]);
+        v.insert(4, 5); // append
+        assert_eq!(v.as_slice(), &[1, 2, 3, 4, 5]);
+        v.insert(2, 9);
+        assert_eq!(v.as_slice(), &[1, 2, 9, 3, 4, 5]);
     }
 
     #[test]

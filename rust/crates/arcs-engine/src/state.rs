@@ -376,8 +376,13 @@ pub struct TurnState {
     /// Which action kinds the remaining pips may buy.
     pub pip_actions: ActionKindSet,
     /// Free actions granted by spent resources, resolved one at a time.
-    /// At most one grant per open resource slot.
-    pub free_actions: InlineVec<ActionKindSet, MAX_RESOURCE_SLOTS>,
+    ///
+    /// One grant per non-Weapon token spent, and a Prelude can spend more
+    /// than a slotful: `fillSlots` (the Interest cards) refills empty slots
+    /// mid-Prelude, so the player spends, refills and spends again. The hard
+    /// bound is the 25 tokens in the box, since a spent token sits off-board
+    /// until the Prelude ends and so cannot be spent twice.
+    pub free_actions: InlineVec<ActionKindSet, 32>,
     /// A Weapon spent in the Prelude adds Battle to this turn's pip actions.
     pub weapon_spent: bool,
     /// Prelude is over once the first pip is spent or actions have begun.
@@ -386,9 +391,15 @@ pub struct TurnState {
     /// card.
     pub declared_this_turn: bool,
     /// Resources spent in the Prelude, returned to the supply when it ends.
-    pub prelude_spent: InlineVec<ResourceType, MAX_RESOURCE_SLOTS>,
+    ///
+    /// Counts per type rather than a list: only the tally is ever read, and a
+    /// count array cannot overflow the way a bounded list can when
+    /// `fillSlots` refills slots mid-Prelude (at most 5 tokens of a type
+    /// exist).
+    pub prelude_spent: [u8; ResourceType::COUNT],
     /// Court cards secured this turn: their Preludes are unusable (p20).
-    pub secured_this_prelude: InlineVec<CourtCardId, 10>,
+    /// Bounded by the Court deck, since a card can only be secured once.
+    pub secured_this_prelude: InlineVec<CourtCardId, 32>,
     /// Guild cards whose once-per-turn Prelude has already been used.
     pub card_preludes_used: InlineVec<CourtCardId, 4>,
 }
@@ -647,11 +658,14 @@ impl GameState {
     }
 
     /// Return a resource token to the general supply — or onto the Cartel
-    /// card for its type, once one is in play (R3; the Cartel passive is not
-    /// active before then).
+    /// card for its type, while one is in play: the card is where that
+    /// type's supply lives (p20). (`returnToSupply` in board.ts.)
     pub fn return_to_supply(&mut self, r: ResourceType) {
-        // R3: route to `cartel[r]` when a Cartel card for `r` is held.
-        self.supply[r.as_index()] += 1;
+        if crate::powers::cartel_holder(self, r).is_some() {
+            self.cartel[r.as_index()] += 1;
+        } else {
+            self.supply[r.as_index()] += 1;
+        }
     }
 
     /// Compact a player's resources after a city returns to their board,

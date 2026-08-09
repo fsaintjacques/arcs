@@ -566,6 +566,37 @@ pub fn court_card(id: CourtCardId) -> &'static CourtCardDef {
     &COURT_DECK[id.0 as usize]
 }
 
+// ---------------------------------------------------------------------------
+// Dispatch bookkeeping (`POWER_STATUS` in court.ts)
+// ---------------------------------------------------------------------------
+
+/// How much of a card's printed ability the engine actually dispatches.
+///
+/// Everything else about every card — suit, raid cost, being influenced,
+/// secured, stolen, discarded by Outrage and counted toward ambitions —
+/// already works regardless. Tracking this as data rather than prose lets a
+/// test assert the docs' claims stay true.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum PowerStatus {
+    /// Every clause works.
+    Full,
+    /// Some clauses work; prose elsewhere says which do not.
+    Partial,
+    /// The card is inert beyond its suit and raid cost.
+    None,
+}
+
+/// Dispatch state per card id, aligned with [`COURT_DECK`]. As of R3 the
+/// whole Court is live, matching the TS `POWER_STATUS` (all `full`).
+pub const POWER_STATUS: [PowerStatus; COURT_CARD_COUNT] = [PowerStatus::Full; COURT_CARD_COUNT];
+
+/// Cards carrying an ability the engine does not fully act on yet.
+pub fn unimplemented_powers() -> impl Iterator<Item = &'static CourtCardDef> {
+    COURT_DECK
+        .iter()
+        .filter(|c| POWER_STATUS[c.id.as_index()] != PowerStatus::Full)
+}
+
 /// Court row width: 3 at 2 players, 4 at 3-4 players (p4 step H).
 #[inline]
 pub const fn court_row_size(players: u8) -> u8 {

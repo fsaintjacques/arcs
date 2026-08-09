@@ -22,12 +22,18 @@ pub mod state;
 pub mod types;
 
 pub use action::{Action, CardActionName, FollowMode, HitTarget, decode_action, encode_action};
-pub use ambitions::{AmbitionResult, ambition_count, score_ambition, score_chapter};
+pub use ambitions::{
+    AmbitionResult, ambition_count, ambition_count_with, score_ambition, score_chapter,
+};
 pub use game::{
     Pending, RuleError, Standing, apply_action_mut, apply_battle_roll_mut, get_pending,
     legal_actions, new_game, resolve_chance_mut, standings, winner,
 };
 pub use inline_vec::InlineVec;
+pub use powers::{
+    AbilitySource, ability_sources, cartel_holder, cartel_icons, discard_guild_card,
+    gain_guild_card, provoke_outrage, steal_guild_card, survives_outrage, weapon_icons,
+};
 pub use rng::{ChanceSource, Rng, SplitMix64};
 pub use setup::{SetupMode, VariantDef, make_variant};
 pub use state::{GameState, PlayerState, TurnState};
