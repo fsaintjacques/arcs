@@ -1,3 +1,4 @@
+import { anchorWeightsV0 } from './anchors';
 import { makeGreedy } from './greedy';
 import { makeMcts } from './mcts';
 import { makeMonteCarlo } from './montecarlo';
@@ -11,6 +12,7 @@ export * from './random';
 export * from './greedy';
 export * from './montecarlo';
 export * from './mcts';
+export * from './anchors';
 
 export const agents: Record<string, AgentFactory> = {
   /** Uniform random over legal actions — the floor. */
@@ -27,6 +29,11 @@ export const agents: Record<string, AgentFactory> = {
   mcts: (opts) => makeMcts(opts as never),
   /** A deliberately cheap MCTS, for fast batches. */
   'mcts-fast': (opts) => makeMcts({ iterations: 120, rolloutDepth: 20, ...opts }, 'mcts-fast'),
+  /** Frozen gauntlet anchors — see anchors.ts. Never retune these. */
+  'anchor-greedy-v0': (opts) =>
+    makeGreedy({ weights: anchorWeightsV0, ...opts }, 'anchor-greedy-v0'),
+  'anchor-mcts300-v0': (opts) =>
+    makeMcts({ iterations: 300, weights: anchorWeightsV0, ...opts }, 'anchor-mcts300-v0'),
 };
 
 export function makeAgent(name: string, opts?: Record<string, unknown>): Agent {
