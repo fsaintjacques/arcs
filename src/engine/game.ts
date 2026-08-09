@@ -39,7 +39,7 @@ import {
 } from './board';
 import { actionCard, SUIT_ACTIONS } from './cards';
 import { courtCard } from './court';
-import { DICE_PER_TYPE, rerollSkirmish, rollBattle } from './dice';
+import { DICE_PER_TYPE, rerollSkirmish, rollBattle, type RollTotals } from './dice';
 import { flipLowestUnflipped, highestAvailable, scoreChapter } from './ambitions';
 import { isGate } from './map';
 import { compactResources, heldResources, openResourceSlots, raidCost } from './playerBoard';
@@ -533,29 +533,7 @@ export function resolveChanceMut(s: GameState, v: VariantDef, rng: RNG): void {
       return;
     }
 
-    const totals = rollBattle(b.dice, rng);
-    b.selfHits = totals.selfHits;
-    b.intercept = totals.intercept;
-    b.hits = totals.hits;
-    b.buildingHits = totals.buildingHits;
-    b.keys = totals.keys;
-    b.skirmishBlanks = totals.skirmishBlanks;
-    // Step 4.2: the intercept converts into self-hits, once per battle (p14).
-    if (b.intercept > 0) {
-      b.selfHits += s.systems[b.system].fresh[b.defender];
-      b.interceptResolved = true;
-    }
-    if (
-      !b.rerollDone &&
-      b.skirmishBlanks > 0 &&
-      canRerollSkirmish(s.playerStates[b.attacker]) &&
-      weaponIcons(s.playerStates[b.attacker]) > 0
-    ) {
-      s.phase = 'battleReroll';
-      return;
-    }
-    s.phase = 'battleAssign';
-    settleBattle(s, v);
+    applyBattleRollMut(s, v, rollBattle(b.dice, rng));
     return;
   }
   throw new Error(`resolveChance in phase ${s.phase}`);
@@ -565,6 +543,38 @@ export function resolveChance(s: GameState, v: VariantDef, rng: RNG): GameState 
   const ns = cloneState(s);
   resolveChanceMut(ns, v, rng);
   return ns;
+}
+
+/**
+ * The deterministic half of the `battleRoll` chance node: apply a roll's
+ * totals and advance the battle. Split from `resolveChanceMut` (which feeds
+ * it `rollBattle`) so a bot can value a battle as the exact expectation over
+ * `battleDistribution` outcomes instead of sampling rolls.
+ */
+export function applyBattleRollMut(s: GameState, v: VariantDef, totals: RollTotals): void {
+  const b = s.battle!;
+  b.selfHits = totals.selfHits;
+  b.intercept = totals.intercept;
+  b.hits = totals.hits;
+  b.buildingHits = totals.buildingHits;
+  b.keys = totals.keys;
+  b.skirmishBlanks = totals.skirmishBlanks;
+  // Step 4.2: the intercept converts into self-hits, once per battle (p14).
+  if (b.intercept > 0) {
+    b.selfHits += s.systems[b.system].fresh[b.defender];
+    b.interceptResolved = true;
+  }
+  if (
+    !b.rerollDone &&
+    b.skirmishBlanks > 0 &&
+    canRerollSkirmish(s.playerStates[b.attacker]) &&
+    weaponIcons(s.playerStates[b.attacker]) > 0
+  ) {
+    s.phase = 'battleReroll';
+    return;
+  }
+  s.phase = 'battleAssign';
+  settleBattle(s, v);
 }
 
 /** Step 4 of ending a chapter: shuffle everything, deal 6 each (p19). */
