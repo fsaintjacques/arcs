@@ -57,6 +57,8 @@ macro_rules! id_newtype {
     };
 }
 
+pub(crate) use {id_newtype, index_enum};
+
 id_newtype! {
     /// A seat at the table, `0..players`.
     pub struct Player
@@ -181,6 +183,23 @@ index_enum! {
         /// Decision: a wiped-out player places 3 ships in a gate.
         Reinforce,
         Over,
+    }
+}
+
+// Defaults for the enums stored in `InlineVec`s (its `new`/`collect` fill
+// dead slots with `T::default()`; the value itself is never read). Manual
+// rather than derived so `index_enum!` needs no `#[default]` plumbing.
+#[allow(clippy::derivable_impls)]
+impl Default for ResourceType {
+    fn default() -> Self {
+        ResourceType::Material
+    }
+}
+
+#[allow(clippy::derivable_impls)]
+impl Default for AmbitionId {
+    fn default() -> Self {
+        AmbitionId::Tycoon
     }
 }
 
