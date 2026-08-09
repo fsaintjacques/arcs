@@ -20,6 +20,7 @@
  */
 import { applyActionMut, determinize, encodeAction, getPending, resolveChanceMut } from '../engine';
 import type { Action, GameState, RNG, VariantDef } from '../engine';
+import { generateCandidates } from './candidates';
 import { defaultWeights, type Weights } from './eval';
 import { narrow, rollout, terminalVector, valueVector } from './rollout';
 import type { Agent } from './types';
@@ -35,6 +36,8 @@ export interface MctsOpts {
   maxActions: number;
   /** Tree depth in decisions; beyond this the rollout policy takes over. */
   maxDepth: number;
+  /** Trim wide nodes with `generateCandidates` instead of blind `narrow`. */
+  candidates: boolean;
   weights: Partial<Weights>;
 }
 
@@ -89,6 +92,7 @@ export function makeMcts(opts: Partial<MctsOpts> = {}, name = 'mcts'): Agent {
   const rolloutDepth = opts.rolloutDepth ?? 30;
   const maxActions = opts.maxActions ?? 12;
   const maxDepth = opts.maxDepth ?? 12;
+  const candidates = opts.candidates ?? false;
   const w: Weights = { ...defaultWeights, ...opts.weights };
 
   return {
@@ -139,7 +143,9 @@ export function makeMcts(opts: Partial<MctsOpts> = {}, name = 'mcts'): Agent {
 
         // Legality is re-derived every visit: this determinization's dice and
         // hands may differ from the one that first expanded this node.
-        const legal = narrow<Action>(pending.actions, maxActions);
+        const legal = candidates
+          ? generateCandidates(state, v2, pending.player, pending.actions, { max: maxActions, weights: w })
+          : narrow<Action>(pending.actions, maxActions);
         const untried: Action[] = [];
         const available: Node[] = [];
         for (const a of legal) {
