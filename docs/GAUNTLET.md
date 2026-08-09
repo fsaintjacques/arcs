@@ -47,6 +47,9 @@ Append-only. One row per (candidate, anchor) pair, produced by
 
 | date | candidate | anchor | games | diff ±95% | separated | ms/dec | notes |
 |---|---|---|---|---|---|---|---|
+| 2026-08-09 | greedy (M2 eval) | anchor-greedy-v0 | 240 | +33.8±10.8 | yes | 0.2 | seed 11 |
+| 2026-08-09 | greedy (M2 eval) | anchor-greedy-v0 | 240 | +41.3±14.4 | yes | 0.2 | seed 42, replication |
+| 2026-08-09 | mcts (M2 eval) | anchor-mcts300-v0 | 240 | +6.3±13.2 | no | 9.6 | seed 11; promoted on no-regression — see FINDINGS on rollout dilution |
 
 ## Human validation
 
