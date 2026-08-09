@@ -15,15 +15,17 @@ pub mod game;
 pub mod inline_vec;
 pub mod map;
 pub mod player_board;
+pub mod powers;
 pub mod rng;
 pub mod setup;
 pub mod state;
 pub mod types;
 
 pub use action::{Action, CardActionName, FollowMode, HitTarget, decode_action, encode_action};
+pub use ambitions::{AmbitionResult, ambition_count, score_ambition, score_chapter};
 pub use game::{
-    Pending, RuleError, Standing, apply_action_mut, get_pending, legal_actions, new_game,
-    resolve_chance_mut, standings, winner,
+    Pending, RuleError, Standing, apply_action_mut, apply_battle_roll_mut, get_pending,
+    legal_actions, new_game, resolve_chance_mut, standings, winner,
 };
 pub use inline_vec::InlineVec;
 pub use rng::{ChanceSource, Rng, SplitMix64};

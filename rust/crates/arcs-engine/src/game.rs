@@ -15,25 +15,33 @@
 //! Court card holding the most defender agents (ties leftmost), and free
 //! Prelude grants are consumed before card pips, most-restrictive first.
 //!
-//! **R1 scope**: setup, deal, mulligan, the card-play trick, the Prelude
-//! (resource spending), and the turn/round/chapter skeleton. Board actions
-//! (`tax`/`build`/`move`/`battle`/...) exist in the `Action` type but return
-//! [`RuleError::NotYetImplemented`] and are not enumerated — they land in
-//! R2. Guild-card powers, Vox and Farseers land in R3; chapter *scoring* is
-//! stubbed where marked `R2`.
+//! **R2 scope**: everything up to and including the board actions
+//! (`tax`/`build`/`move`/`catapult`/`repair`/`influence`/`secure`), battle
+//! with hit assignment and raiding, ambition scoring and chapter/game end.
+//! Guild-card *powers*, Vox effects and Farseers land in R3 — a secured Vox
+//! card currently resolves inert (discarded, marked `R3: pendingVox`) so
+//! games complete, and the `battleReroll` phase stays gated behind the
+//! Skirmishers passive (never enumerated before R3).
 
-use crate::action::{Action, FollowMode};
-use crate::ambitions::{flip_lowest_unflipped, highest_available};
+use crate::action::{Action, FollowMode, HitTarget};
+use crate::ambitions::{flip_lowest_unflipped, highest_available, score_chapter};
 use crate::cards::{CardAmbition, action_card, suit_actions};
+use crate::court::{CourtCardKind, court_card};
+use crate::dice::{RollTotals, SKIRMISH_FACES, reroll_skirmish, roll_battle};
 use crate::inline_vec::InlineVec;
-use crate::map::{SYSTEM_COUNT, SystemKind, planet_id};
+use crate::map::{SYSTEM_COUNT, SystemKind, is_gate, planet_id};
+use crate::player_board::raid_cost;
+use crate::powers::{provoke_outrage, steal_guild_card};
 use crate::rng::Rng;
 use crate::setup::{SetupMode, VariantDef, draw_setup};
 use crate::state::{
-    ActionKindSet, Building, CourtSlot, GameState, GameStats, PlayedCard, PlayerState, RoundState,
-    SystemState, TurnState,
+    ActionKindSet, BattleState, Building, CourtSlot, GameState, GameStats, MoveState, PlayedCard,
+    PlayerState, RoundState, SystemState, TrophyKind, TurnState,
 };
-use crate::types::{ActionCardId, AmbitionId, BuildingKind, Phase, PlayMode, Player, ResourceType};
+use crate::types::{
+    ActionCardId, ActionKind, AmbitionId, BuildingKind, DieType, Phase, PlayMode, Player,
+    ResourceType, SystemId,
+};
 
 // ---------------------------------------------------------------------------
 // Node inspection
@@ -135,6 +143,11 @@ pub fn legal_actions(s: &GameState, v: &VariantDef, out: &mut Vec<Action>) {
         Phase::Play => play_actions(s, out),
         Phase::Prelude => prelude_actions(s, v, out),
         Phase::Actions => turn_actions(s, v, out),
+        Phase::Catapult => catapult_actions(s, v, out),
+        Phase::BattleAssign => battle_actions(s, out),
+        // R3: battleReroll (Skirmishers) — the phase is unreachable until
+        // `can_reroll_skirmish` can be true, i.e. until card powers land.
+        Phase::BattleReroll => {}
         Phase::Reinforce => {
             for def in &v.systems {
                 if def.kind == SystemKind::Gate && !s.systems[def.id.as_index()].out_of_play {
@@ -142,7 +155,7 @@ pub fn legal_actions(s: &GameState, v: &VariantDef, out: &mut Vec<Action>) {
                 }
             }
         }
-        // R2: catapult, battleReroll, battleAssign. R3: peekTarget, peekSwap.
+        // R3: peekTarget, peekSwap (Farseers).
         _ => {}
     }
 }
@@ -263,14 +276,348 @@ fn can_seize(s: &GameState, player: Player) -> bool {
     !s.initiative_seized && player != s.initiative
 }
 
-/// The actions phase. R1 skeleton: only `EndTurn` is enumerated — the board
-/// actions the pips could buy land in R2.
-fn turn_actions(s: &GameState, _v: &VariantDef, out: &mut Vec<Action>) {
-    debug_assert!(s.turn.is_some());
-    // R2: tax / build / move / repair / influence / secure / battle,
-    //     gated on `available_kinds` (pips + weapon_spent + free grants).
+/// Which action kinds the current turn can still pay for.
+/// (`availableKinds` in game.ts.)
+fn available_kinds(turn: &TurnState) -> ActionKindSet {
+    let mut kinds = ActionKindSet::EMPTY;
+    if turn.pips_left > 0 {
+        kinds.0 |= turn.pip_actions.0;
+        if turn.weapon_spent {
+            kinds.insert(ActionKind::Battle);
+        }
+    }
+    for grant in turn.free_actions.iter() {
+        kinds.0 |= grant.0;
+    }
+    kinds
+}
+
+/// The actions phase (`turnActions` in game.ts).
+fn turn_actions(s: &GameState, v: &VariantDef, out: &mut Vec<Action>) {
+    let turn = s.turn.expect("actions without a turn");
+    let player = turn.player;
+    let kinds = available_kinds(&turn);
+
+    if kinds.contains(ActionKind::Tax) {
+        tax_actions(s, v, player, out);
+    }
+    if kinds.contains(ActionKind::Build) {
+        build_actions(s, v, player, out);
+    }
+    if kinds.contains(ActionKind::Move) {
+        move_actions(s, v, player, out);
+    }
+    if kinds.contains(ActionKind::Repair) {
+        repair_actions(s, player, out);
+    }
+    if kinds.contains(ActionKind::Influence) {
+        influence_actions(s, player, out);
+    }
+    if kinds.contains(ActionKind::Secure) {
+        secure_actions(s, player, out);
+    }
+    if kinds.contains(ActionKind::Battle) {
+        battle_setup_actions(s, v, player, out);
+    }
     // R3: cardActions (Guild-card new actions).
+
     out.push(Action::EndTurn);
+}
+
+/// Tax: a Loyal city, or a Rival city in a system you control (p12).
+/// (`taxActions` in game.ts.)
+fn tax_actions(s: &GameState, v: &VariantDef, player: Player, out: &mut Vec<Action>) {
+    for def in &v.systems {
+        let st = &s.systems[def.id.as_index()];
+        if st.out_of_play {
+            continue;
+        }
+        let controller = s.control_of(def.id);
+        for (i, b) in st.buildings.iter().enumerate() {
+            if b.kind() != BuildingKind::City || b.taxed_this_turn() {
+                continue;
+            }
+            if b.player() != player && controller != Some(player) {
+                continue;
+            }
+            out.push(Action::Tax {
+                system: def.id,
+                building: i as u8,
+            });
+        }
+    }
+}
+
+/// Build a starport/city in an empty slot, or a ship at a Loyal starport
+/// (p12). (`buildActions` in game.ts.)
+fn build_actions(s: &GameState, v: &VariantDef, player: Player, out: &mut Vec<Action>) {
+    let p = s.player(player);
+    for def in &v.systems {
+        let st = &s.systems[def.id.as_index()];
+        if st.out_of_play {
+            continue;
+        }
+
+        if def.kind == SystemKind::Planet
+            && s.has_piece(def.id, player)
+            && st.buildings.len() < def.building_slots as usize
+        {
+            if p.starports_supply > 0 {
+                out.push(Action::BuildBuilding {
+                    system: def.id,
+                    kind: BuildingKind::Starport,
+                });
+            }
+            if p.cities_used < crate::player_board::CITY_SLOTS as u8 {
+                out.push(Action::BuildBuilding {
+                    system: def.id,
+                    kind: BuildingKind::City,
+                });
+            }
+        }
+
+        if p.ships_supply > 0 {
+            for (i, b) in st.buildings.iter().enumerate() {
+                if b.kind() == BuildingKind::Starport
+                    && b.player() == player
+                    && !b.built_this_turn()
+                {
+                    out.push(Action::BuildShip {
+                        system: def.id,
+                        building: i as u8,
+                    });
+                }
+            }
+        }
+    }
+}
+
+/// Move any number of Loyal ships to an adjacent system (p13).
+/// (`moveActions` in game.ts.)
+fn move_actions(s: &GameState, v: &VariantDef, player: Player, out: &mut Vec<Action>) {
+    for from in 0..SYSTEM_COUNT {
+        let from = SystemId(from as u8);
+        if s.systems[from.as_index()].out_of_play {
+            continue;
+        }
+        let count = s.ships_of(from, player);
+        if count == 0 {
+            continue;
+        }
+        for &to in s.neighbours(v, from).iter() {
+            for n in 1..=count {
+                out.push(Action::Move { from, to, ships: n });
+            }
+        }
+    }
+}
+
+/// Repair 1 damaged Loyal ship or building, anywhere on the map (p13).
+/// (`repairActions` in game.ts.)
+fn repair_actions(s: &GameState, player: Player, out: &mut Vec<Action>) {
+    for i in 0..SYSTEM_COUNT {
+        let st = &s.systems[i];
+        if st.out_of_play {
+            continue;
+        }
+        if st.damaged[player.as_index()] > 0 {
+            out.push(Action::Repair {
+                system: SystemId(i as u8),
+                building: None,
+            });
+        }
+        for (bi, b) in st.buildings.iter().enumerate() {
+            if b.player() == player && b.damaged() {
+                out.push(Action::Repair {
+                    system: SystemId(i as u8),
+                    building: Some(bi as u8),
+                });
+            }
+        }
+    }
+}
+
+/// Place 1 agent on any card in the Court (p13).
+/// (`influenceActions` in game.ts.)
+fn influence_actions(s: &GameState, player: Player, out: &mut Vec<Action>) {
+    if s.player(player).agents_supply == 0 {
+        return;
+    }
+    for slot in 0..s.court.len() {
+        out.push(Action::Influence { slot: slot as u8 });
+    }
+}
+
+/// Take a Court card you have strictly the most agents on (p13).
+/// (`secureActions` in game.ts.)
+fn secure_actions(s: &GameState, player: Player, out: &mut Vec<Action>) {
+    'slots: for (i, slot) in s.court.iter().enumerate() {
+        let mine = slot.agents[player.as_index()];
+        if mine == 0 {
+            continue;
+        }
+        for p in 0..s.players as usize {
+            if p != player.as_index() && slot.agents[p] >= mine {
+                continue 'slots;
+            }
+        }
+        out.push(Action::Secure { slot: i as u8 });
+    }
+}
+
+/// Battle: pick a system, a defender and the dice pool (p14). The dice split
+/// is part of the action so the whole battle decision is one enumerable
+/// choice. (`battleSetupActions` in game.ts.)
+fn battle_setup_actions(s: &GameState, _v: &VariantDef, player: Player, out: &mut Vec<Action>) {
+    use crate::dice::DICE_PER_TYPE;
+    for system in 0..SYSTEM_COUNT {
+        let system = SystemId(system as u8);
+        if s.systems[system.as_index()].out_of_play {
+            continue;
+        }
+        let attacking = s.ships_of(system, player);
+        if attacking == 0 {
+            continue;
+        }
+        for defender in 0..s.players {
+            let defender = Player(defender);
+            if defender == player || !s.has_piece(system, defender) {
+                continue;
+            }
+            // "Raid dice only if there are defending buildings, or the
+            // defender has no Loyal buildings in any systems on the map."
+            // (p14)
+            let defending_buildings = s.systems[system.as_index()]
+                .buildings
+                .iter()
+                .any(|b| b.player() == defender);
+            let raid_allowed = defending_buildings || !has_any_building(s, defender);
+            // "1 die per attacking ship ... you cannot collect more than 6
+            // of a type". R3: Gatekeepers adds extra dice at gates.
+            let max = (attacking as usize).min(DICE_PER_TYPE * 3);
+            for a in 0..=DICE_PER_TYPE.min(max) {
+                for sk in 0..=DICE_PER_TYPE.min(max - a) {
+                    let max_raid = if raid_allowed {
+                        DICE_PER_TYPE.min(max - a - sk)
+                    } else {
+                        0
+                    };
+                    for r in 0..=max_raid {
+                        if a + sk + r == 0 {
+                            continue;
+                        }
+                        out.push(Action::Battle {
+                            system,
+                            defender,
+                            assault: a as u8,
+                            skirmish: sk as u8,
+                            raid: r as u8,
+                        });
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// Does the defender hold any building anywhere? Gates the raid dice (p14).
+/// (`hasAnyBuilding` in board.ts.)
+fn has_any_building(s: &GameState, player: Player) -> bool {
+    s.systems
+        .iter()
+        .any(|st| !st.out_of_play && st.buildings.iter().any(|b| b.player() == player))
+}
+
+/// Continue or stop a catapult move (p13). (`catapultActions` in game.ts.)
+fn catapult_actions(s: &GameState, v: &VariantDef, out: &mut Vec<Action>) {
+    let moving = s.moving.expect("catapult without a move");
+    out.push(Action::CatapultStop);
+    for &to in s.neighbours(v, moving.at).iter() {
+        if moving.visited.contains(&to) {
+            continue;
+        }
+        for n in 1..=moving.ships {
+            out.push(Action::Catapult { to, ships: n });
+        }
+    }
+}
+
+/// Hits are assigned one at a time so the action space stays enumerable.
+/// (`battleActions` in game.ts.)
+fn battle_actions(s: &GameState, out: &mut Vec<Action>) {
+    let b = s.battle.expect("battleAssign without a battle");
+    let st = &s.systems[b.system.as_index()];
+
+    if b.self_hits > 0 {
+        if st.fresh[b.attacker.as_index()] > 0 {
+            out.push(Action::AssignSelf { fresh: true });
+        }
+        if st.damaged[b.attacker.as_index()] > 0 {
+            out.push(Action::AssignSelf { fresh: false });
+        }
+        if !out.is_empty() {
+            return;
+        }
+    }
+
+    if b.hits > 0 {
+        if st.fresh[b.defender.as_index()] > 0 {
+            out.push(Action::AssignHit {
+                target: HitTarget::Ship { fresh: true },
+            });
+        }
+        if st.damaged[b.defender.as_index()] > 0 {
+            out.push(Action::AssignHit {
+                target: HitTarget::Ship { fresh: false },
+            });
+        }
+        if out.is_empty() {
+            for (i, bl) in st.buildings.iter().enumerate() {
+                if bl.player() == b.defender {
+                    out.push(Action::AssignHit {
+                        target: HitTarget::Building { building: i as u8 },
+                    });
+                }
+            }
+        }
+        if !out.is_empty() {
+            return;
+        }
+    }
+
+    if b.building_hits > 0 {
+        for (i, bl) in st.buildings.iter().enumerate() {
+            if bl.player() == b.defender {
+                out.push(Action::AssignHit {
+                    target: HitTarget::Building { building: i as u8 },
+                });
+            }
+        }
+        if !out.is_empty() {
+            return;
+        }
+    }
+
+    // Raiding needs surviving attacking ships (p14 step 4.5).
+    if b.keys > 0 && s.ships_of(b.system, b.attacker) > 0 {
+        let victim = s.player(b.defender);
+        // R3: Sworn Guardians (theft immunity) restricts this list to the
+        // shield card itself.
+        for slot in 0..victim.open_resource_slots() {
+            if victim.resources[slot].is_some() && raid_cost(slot) <= b.keys {
+                out.push(Action::RaidResource { slot: slot as u8 });
+            }
+        }
+        for &card in victim.guild_cards.iter() {
+            if court_card(card).raid_cost <= b.keys {
+                out.push(Action::RaidCard { card });
+            }
+        }
+        out.push(Action::RaidDone);
+        return;
+    }
+
+    out.push(Action::RaidDone);
 }
 
 // ---------------------------------------------------------------------------
@@ -288,10 +635,87 @@ pub fn resolve_chance_mut(
             deal_chapter(s, v, rng);
             Ok(())
         }
-        // R2: battle rolls (rollBattle / rerollSkirmish + applyBattleRollMut).
-        Phase::BattleRoll => Err(RuleError::NotYetImplemented("battle rolls land in R2")),
+        Phase::BattleRoll => {
+            let mut b = s
+                .battle
+                .ok_or(RuleError::Illegal("no battle in progress"))?;
+
+            // A Skirmishers reroll replaces only the blank skirmish dice it
+            // names; the rest of the roll stands, and no new intercept can
+            // appear because the skirmish die has no intercept face.
+            // (Unreachable before R3: only the battleReroll phase sets
+            // `pending_reroll`, and it is gated behind the Skirmishers card.)
+            if b.pending_reroll > 0 {
+                let rr = reroll_skirmish(b.pending_reroll, rng);
+                // Swap the named blanks for their new faces.
+                let mut to_swap = b.pending_reroll;
+                let skirmish = DieType::Skirmish.as_index();
+                b.rolled[skirmish].retain(|&idx| {
+                    if to_swap > 0 && SKIRMISH_FACES[idx as usize].hits == 0 {
+                        to_swap -= 1;
+                        false
+                    } else {
+                        true
+                    }
+                });
+                for &f in rr.faces.iter() {
+                    b.rolled[skirmish].push(f);
+                }
+                b.hits += rr.hits;
+                b.skirmish_blanks = b.skirmish_blanks - b.pending_reroll + rr.blanks;
+                b.pending_reroll = 0;
+                b.reroll_done = true;
+                s.battle = Some(b);
+                s.phase = Phase::BattleAssign;
+                settle_battle(s, v);
+                return Ok(());
+            }
+
+            let roll = roll_battle(b.dice, rng);
+            // The faces are what the table shows; a bot applying a synthetic
+            // outcome via `apply_battle_roll_mut` has no faces and skips
+            // this.
+            b.rolled = roll.faces;
+            s.battle = Some(b);
+            apply_battle_roll_mut(s, v, roll.totals)
+        }
         _ => Err(RuleError::WrongPhase),
     }
+}
+
+/// The deterministic half of the `battleRoll` chance node: apply a roll's
+/// totals and advance the battle. Split from [`resolve_chance_mut`] (which
+/// feeds it [`roll_battle`]) so a bot can value a battle as the exact
+/// expectation over the dice distribution instead of sampling rolls.
+/// (`applyBattleRollMut` in game.ts.)
+pub fn apply_battle_roll_mut(
+    s: &mut GameState,
+    v: &VariantDef,
+    totals: RollTotals,
+) -> Result<(), RuleError> {
+    let mut b = s
+        .battle
+        .ok_or(RuleError::Illegal("no battle in progress"))?;
+    b.self_hits = totals.self_hits;
+    b.intercept = totals.intercept;
+    b.hits = totals.hits;
+    b.building_hits = totals.building_hits;
+    b.keys = totals.keys;
+    b.skirmish_blanks = totals.skirmish_blanks;
+    // Step 4.2: the intercept converts into self-hits, once per battle
+    // (p14).
+    if b.intercept > 0 {
+        b.self_hits += s.systems[b.system.as_index()].fresh[b.defender.as_index()];
+        b.intercept_resolved = true;
+    }
+    s.battle = Some(b);
+    // R3: Skirmishers — when the attacker holds the card and has Weapon
+    // icons, unrerolled blanks open the battleReroll phase here
+    // (canRerollSkirmish / weaponIcons in powers.ts). No card powers are
+    // active in R2, so the offer never opens.
+    s.phase = Phase::BattleAssign;
+    settle_battle(s, v);
+    Ok(())
 }
 
 /// Step 4 of ending a chapter: shuffle everything, deal 6 each (p19).
@@ -486,26 +910,76 @@ pub fn apply_action_mut(s: &mut GameState, v: &VariantDef, a: Action) -> Result<
         Action::CardAction { .. } => Err(RuleError::NotYetImplemented(
             "guild-card actions land in R3",
         )),
-        // R2: the board actions bought with pips and free grants.
+        // The board actions bought with pips and free grants.
         Action::Tax { .. }
         | Action::BuildShip { .. }
         | Action::BuildBuilding { .. }
         | Action::Move { .. }
-        | Action::Catapult { .. }
-        | Action::CatapultStop
         | Action::Repair { .. }
         | Action::Influence { .. }
         | Action::Secure { .. }
-        | Action::Battle { .. } => Err(RuleError::NotYetImplemented("board actions land in R2")),
-        // R2: battle resolution.
+        | Action::Battle { .. } => {
+            // Enumerated only in the actions phase; TS also reaches them
+            // from the Prelude (performAction ends it implicitly).
+            if s.phase != Phase::Actions && s.phase != Phase::Prelude {
+                return Err(RuleError::WrongPhase);
+            }
+            perform_action(s, v, a)
+        }
+        Action::Catapult { to, ships } => {
+            if s.phase != Phase::Catapult {
+                return Err(RuleError::WrongPhase);
+            }
+            let moving = s.moving.ok_or(RuleError::Illegal("no move in progress"))?;
+            let player = s
+                .turn
+                .ok_or(RuleError::Illegal("no turn in progress"))?
+                .player;
+            move_ships_into(s, v, moving.at, to, player, ships);
+            Ok(())
+        }
+        Action::CatapultStop => {
+            if s.phase != Phase::Catapult {
+                return Err(RuleError::WrongPhase);
+            }
+            s.moving = None;
+            s.phase = Phase::Actions;
+            after_action(s, v);
+            Ok(())
+        }
+        // Battle assignment and raiding run inside a battle, not against
+        // pips.
         Action::AssignSelf { .. }
         | Action::AssignHit { .. }
         | Action::RaidResource { .. }
         | Action::RaidCard { .. }
-        | Action::RaidDone
-        | Action::RerollSkirmish { .. } => Err(RuleError::NotYetImplemented(
-            "battle resolution lands in R2",
-        )),
+        | Action::RaidDone => {
+            if s.phase != Phase::BattleAssign {
+                return Err(RuleError::WrongPhase);
+            }
+            battle_assign(s, v, a)
+        }
+        Action::RerollSkirmish { count } => {
+            // Unreachable before R3 (the battleReroll phase is gated behind
+            // Skirmishers), but the mechanics are complete.
+            if s.phase != Phase::BattleReroll {
+                return Err(RuleError::WrongPhase);
+            }
+            let mut b = s
+                .battle
+                .ok_or(RuleError::Illegal("no battle in progress"))?;
+            if count > 0 {
+                b.pending_reroll = count;
+                s.battle = Some(b);
+                s.phase = Phase::BattleRoll;
+                return Ok(());
+            }
+            b.reroll_done = true;
+            s.battle = Some(b);
+            s.phase = Phase::BattleAssign;
+            settle_battle(s, v);
+            Ok(())
+        }
         // R3: Farseers.
         Action::PeekTarget { .. } | Action::PeekSwap { .. } | Action::PeekSwapSkip => {
             Err(RuleError::NotYetImplemented("Farseers lands in R3"))
@@ -701,8 +1175,6 @@ fn end_prelude(s: &mut GameState) {
 
 /// Pay for one action. Free grants from resources are consumed before card
 /// pips, most-restrictive first (engine ruling — see the game.ts header).
-/// Unused until the board actions land in R2; the most-restrictive-first
-/// ruling is pinned by a unit test below.
 pub fn pay_for(turn: &mut TurnState, kind: crate::types::ActionKind) -> Result<(), RuleError> {
     let mut best: Option<usize> = None;
     for (i, grant) in turn.free_actions.iter().enumerate() {
@@ -727,7 +1199,551 @@ pub fn pay_for(turn: &mut TurnState, kind: crate::types::ActionKind) -> Result<(
     Err(RuleError::Illegal("cannot pay for that action"))
 }
 
+/// [`pay_for`] against the turn stored in the state.
+fn pay(s: &mut GameState, kind: ActionKind) -> Result<(), RuleError> {
+    let mut turn = s.turn.ok_or(RuleError::Illegal("no turn in progress"))?;
+    pay_for(&mut turn, kind)?;
+    s.turn = Some(turn);
+    Ok(())
+}
+
+// --- standard actions ------------------------------------------------------
+
+/// (`performAction` in game.ts.)
+fn perform_action(s: &mut GameState, v: &VariantDef, a: Action) -> Result<(), RuleError> {
+    end_prelude(s);
+    s.phase = Phase::Actions;
+    let player = s
+        .turn
+        .ok_or(RuleError::Illegal("no turn in progress"))?
+        .player;
+
+    match a {
+        Action::Tax { system, building } => {
+            pay(s, ActionKind::Tax)?;
+            let owner = {
+                let st = &mut s.systems[system.as_index()];
+                let b = st
+                    .buildings
+                    .as_mut_slice()
+                    .get_mut(building as usize)
+                    .ok_or(RuleError::Illegal("no such building"))?;
+                b.set_taxed_this_turn();
+                b.player()
+            };
+            if let Some(t) = v.systems[system.as_index()].planet_type {
+                s.take_from_supply(player, t);
+            }
+            if owner != player {
+                capture_agent(s, player, owner);
+            }
+        }
+        Action::BuildShip { system, building } => {
+            pay(s, ActionKind::Build)?;
+            {
+                let p = s.player_mut(player);
+                if p.ships_supply == 0 {
+                    return Err(RuleError::Illegal("no ships in supply"));
+                }
+                p.ships_supply -= 1;
+            }
+            let controller = s.control_of(system);
+            let st = &mut s.systems[system.as_index()];
+            st.buildings
+                .as_mut_slice()
+                .get_mut(building as usize)
+                .ok_or(RuleError::Illegal("no such building"))?
+                .set_built_this_turn();
+            if controller.is_some_and(|c| c != player) {
+                st.damaged[player.as_index()] += 1;
+            } else {
+                st.fresh[player.as_index()] += 1;
+            }
+        }
+        Action::BuildBuilding { system, kind } => {
+            pay(s, ActionKind::Build)?;
+            if s.systems[system.as_index()].buildings.is_full() {
+                return Err(RuleError::Illegal("no free building slot"));
+            }
+            let controller = s.control_of(system);
+            let damaged = controller.is_some_and(|c| c != player);
+            {
+                let p = s.player_mut(player);
+                match kind {
+                    BuildingKind::City => {
+                        if p.cities_used >= crate::player_board::CITY_SLOTS as u8 {
+                            return Err(RuleError::Illegal("no cities left"));
+                        }
+                        p.cities_used += 1;
+                    }
+                    BuildingKind::Starport => {
+                        if p.starports_supply == 0 {
+                            return Err(RuleError::Illegal("no starports in supply"));
+                        }
+                        p.starports_supply -= 1;
+                    }
+                }
+            }
+            s.systems[system.as_index()]
+                .buildings
+                .push(Building::new(player, kind, damaged));
+            if kind == BuildingKind::City {
+                s.compact_resources_of(player);
+            }
+        }
+        Action::Move { from, to, ships } => {
+            pay(s, ActionKind::Move)?;
+            move_ships_into(s, v, from, to, player, ships);
+            return Ok(()); // may open a catapult decision
+        }
+        Action::Repair { system, building } => {
+            pay(s, ActionKind::Repair)?;
+            let st = &mut s.systems[system.as_index()];
+            match building {
+                None => {
+                    if st.damaged[player.as_index()] == 0 {
+                        return Err(RuleError::Illegal("no damaged ship there"));
+                    }
+                    st.damaged[player.as_index()] -= 1;
+                    st.fresh[player.as_index()] += 1;
+                }
+                Some(bi) => {
+                    st.buildings
+                        .as_mut_slice()
+                        .get_mut(bi as usize)
+                        .ok_or(RuleError::Illegal("no such building"))?
+                        .set_damaged(false);
+                }
+            }
+        }
+        Action::Influence { slot } => {
+            pay(s, ActionKind::Influence)?;
+            {
+                let p = s.player_mut(player);
+                if p.agents_supply == 0 {
+                    return Err(RuleError::Illegal("no agents in supply"));
+                }
+                p.agents_supply -= 1;
+            }
+            s.court
+                .as_mut_slice()
+                .get_mut(slot as usize)
+                .ok_or(RuleError::Illegal("no such court slot"))?
+                .agents[player.as_index()] += 1;
+        }
+        Action::Secure { slot } => {
+            pay(s, ActionKind::Secure)?;
+            secure_card(s, v, player, slot as usize, false)?;
+        }
+        Action::Battle {
+            system,
+            defender,
+            assault,
+            skirmish,
+            raid,
+        } => {
+            pay(s, ActionKind::Battle)?;
+            s.battle = Some(BattleState {
+                rolled: Default::default(),
+                system,
+                attacker: player,
+                defender,
+                // Indexed by `DieType::as_index`: assault, skirmish, raid.
+                dice: [assault, skirmish, raid],
+                self_hits: 0,
+                intercept: 0,
+                hits: 0,
+                building_hits: 0,
+                keys: 0,
+                intercept_resolved: false,
+                skirmish_blanks: 0,
+                pending_reroll: 0,
+                reroll_done: false,
+            });
+            s.stats.battles += 1;
+            s.phase = Phase::BattleRoll;
+            return Ok(());
+        }
+        _ => return Err(RuleError::Illegal("not a standard action")),
+    }
+    after_action(s, v);
+    Ok(())
+}
+
+/// Move ships, then offer Catapult moves when they left a Loyal starport and
+/// landed on a gate nobody else controls (p13).
+///
+/// "When you take a Catapult move, check for control before moving in, not
+/// after" (p13) — so the destination's controller is read before the ships
+/// arrive, otherwise the arriving ships would clear the blockade themselves.
+/// (`moveShipsInto` in game.ts.)
+fn move_ships_into(
+    s: &mut GameState,
+    v: &VariantDef,
+    from: SystemId,
+    to: SystemId,
+    player: Player,
+    ships: u8,
+) {
+    let catapulting = s.phase == Phase::Catapult;
+    let mut visited: InlineVec<SystemId, SYSTEM_COUNT> = if catapulting {
+        s.moving.expect("catapult without a move").visited
+    } else {
+        InlineVec::from_slice(&[from])
+    };
+    let controller_before = s.control_of(to);
+
+    // Move fresh ships first, then damaged ones.
+    let pi = player.as_index();
+    let mut left = ships;
+    let fresh = s.systems[from.as_index()].fresh[pi].min(left);
+    s.systems[from.as_index()].fresh[pi] -= fresh;
+    s.systems[to.as_index()].fresh[pi] += fresh;
+    left -= fresh;
+    let damaged = s.systems[from.as_index()].damaged[pi].min(left);
+    s.systems[from.as_index()].damaged[pi] -= damaged;
+    s.systems[to.as_index()].damaged[pi] += damaged;
+
+    // Loyal starport only — "you can't Catapult from Rival starports you
+    // control".
+    let can_catapult = catapulting || s.has_building(from, player, Some(BuildingKind::Starport));
+    // "keep moving ... until they move to a gate controlled by anyone else
+    // or they move to any planet"
+    let blocked = !is_gate(to) || controller_before.is_some_and(|c| c != player);
+
+    visited.push(to);
+    let onward = s.neighbours(v, to).iter().any(|n| !visited.contains(n));
+    if can_catapult && !blocked && ships > 0 && onward {
+        s.moving = Some(MoveState {
+            at: to,
+            ships,
+            visited,
+        });
+        s.phase = Phase::Catapult;
+        return;
+    }
+    s.moving = None;
+    s.phase = Phase::Actions;
+    after_action(s, v);
+}
+
+/// Take a Court card, capture the Rival agents on it, refill the slot (p13).
+/// (`secureCard` in game.ts.)
+fn secure_card(
+    s: &mut GameState,
+    // R3: Vox resolution needs the variant.
+    _v: &VariantDef,
+    player: Player,
+    slot: usize,
+    ransack: bool,
+) -> Result<(), RuleError> {
+    let court_slot = *s
+        .court
+        .as_slice()
+        .get(slot)
+        .ok_or(RuleError::Illegal("no such court slot"))?;
+    let card = court_slot.card;
+
+    s.player_mut(player).agents_supply += court_slot.agents[player.as_index()];
+    for p in 0..s.players as usize {
+        if p == player.as_index() {
+            continue;
+        }
+        let n = court_slot.agents[p];
+        if n == 0 {
+            continue;
+        }
+        if ransack {
+            // Ransacking takes agents as Trophies, not Captives (p16).
+            // game.ts:1135 records them with kind 'ship', which would send
+            // them home to the *ship* supply at Warlord scoring; the port
+            // keeps them agents so every piece returns to its own pool.
+            s.player_mut(player).trophies[p][TrophyKind::Agent.as_index()] += n;
+        } else {
+            s.player_mut(player).captives[p] += n;
+        }
+    }
+
+    if court_card(card).kind == CourtCardKind::Vox {
+        // R3: pendingVox / applyVoxImmediate — the `When Secured` effect
+        // (and Song of Freedom's shuffle-back) resolves here. Until then
+        // the card resolves inert and is discarded so games complete.
+        s.court_discard.push(card);
+    } else {
+        crate::powers::gain_guild_card(s, player, card);
+        if let Some(turn) = s.turn.as_mut()
+            && !turn.prelude_over
+        {
+            // A card secured during the Prelude cannot use its own Prelude
+            // ability this turn (p20) — R3 reads this list. Entries after
+            // the Prelude ended are dead, so they are not recorded (the TS
+            // list records them; nothing ever reads them).
+            turn.secured_this_prelude.push(card);
+        }
+    }
+
+    // Securing is a decision, not a chance node — the Court deck was
+    // shuffled at setup and is drawn in order. If it ever empties, the
+    // discard comes back in reverse, which keeps the refill a deterministic
+    // function of the state rather than smuggling in an RNG the caller did
+    // not provide.
+    if s.court_deck.is_empty() {
+        s.court_deck = s.court_discard.iter().rev().copied().collect();
+        s.court_discard.clear();
+    }
+    match s.court_deck.pop() {
+        Some(next) => {
+            s.court.as_mut_slice()[slot] = CourtSlot {
+                card: next,
+                agents: [0; crate::state::MAX_SEATS],
+            };
+        }
+        None => {
+            s.court.remove(slot);
+        }
+    }
+    Ok(())
+}
+
+/// Taxing a Rival city captures one of their agents (p12).
+/// (`captureAgent` in game.ts.)
+fn capture_agent(s: &mut GameState, captor: Player, victim: Player) {
+    if s.player(victim).agents_supply == 0 {
+        return;
+    }
+    s.player_mut(victim).agents_supply -= 1;
+    s.player_mut(captor).captives[victim.as_index()] += 1;
+}
+
+// --- battle ----------------------------------------------------------------
+
+/// (`battleAssign` in game.ts.)
+fn battle_assign(s: &mut GameState, v: &VariantDef, a: Action) -> Result<(), RuleError> {
+    let mut b = s
+        .battle
+        .ok_or(RuleError::Illegal("no battle in progress"))?;
+
+    match a {
+        Action::AssignSelf { fresh } => {
+            if b.self_hits == 0 {
+                return Err(RuleError::Illegal("no self-hits to assign"));
+            }
+            b.self_hits -= 1;
+            s.battle = Some(b);
+            hit_ship(s, b.system, b.attacker, fresh, b.defender)?;
+        }
+        Action::AssignHit {
+            target: HitTarget::Ship { fresh },
+        } => {
+            if b.hits == 0 {
+                return Err(RuleError::Illegal("no hits to assign"));
+            }
+            b.hits -= 1;
+            s.battle = Some(b);
+            hit_ship(s, b.system, b.defender, fresh, b.attacker)?;
+        }
+        Action::AssignHit {
+            target: HitTarget::Building { building },
+        } => {
+            // Hits spill onto buildings only once no defending ships
+            // remain.
+            let st = &s.systems[b.system.as_index()];
+            let defender_ships =
+                st.fresh[b.defender.as_index()] + st.damaged[b.defender.as_index()];
+            if b.hits > 0 && defender_ships == 0 {
+                b.hits -= 1;
+            } else if b.building_hits > 0 {
+                b.building_hits -= 1;
+            } else {
+                return Err(RuleError::Illegal("no building hits to assign"));
+            }
+            s.battle = Some(b);
+            hit_building(s, v, b.system, building as usize, b.attacker);
+        }
+        Action::RaidResource { slot } => {
+            let r = s
+                .player(b.defender)
+                .resources
+                .get(slot as usize)
+                .copied()
+                .flatten()
+                .ok_or(RuleError::Illegal("no resource in that slot"))?;
+            let cost = raid_cost(slot as usize);
+            if cost > b.keys {
+                return Err(RuleError::Illegal("not enough keys"));
+            }
+            b.keys -= cost;
+            s.battle = Some(b);
+            s.player_mut(b.defender).resources[slot as usize] = None;
+            // Stolen straight into the attacker's slots (no supply
+            // round-trip); discarded when there is no room.
+            if !s.player_mut(b.attacker).gain_resource(r) {
+                s.return_to_supply(r);
+            }
+        }
+        Action::RaidCard { card } => {
+            if !s.player(b.defender).guild_cards.contains(&card) {
+                return Err(RuleError::Illegal("defender does not hold that card"));
+            }
+            let cost = court_card(card).raid_cost;
+            if cost > b.keys {
+                return Err(RuleError::Illegal("not enough keys"));
+            }
+            b.keys -= cost;
+            s.battle = Some(b);
+            steal_guild_card(s, b.defender, b.attacker, card);
+        }
+        Action::RaidDone => {
+            b.keys = 0;
+            s.battle = Some(b);
+        }
+        _ => return Err(RuleError::Illegal("not a battle action")),
+    }
+    settle_battle(s, v);
+    Ok(())
+}
+
+/// Damage a fresh ship, or destroy a damaged one into `taker`'s Trophies.
+/// (`hitShip` in game.ts.)
+fn hit_ship(
+    s: &mut GameState,
+    system: SystemId,
+    owner: Player,
+    fresh: bool,
+    taker: Player,
+) -> Result<(), RuleError> {
+    let st = &mut s.systems[system.as_index()];
+    let oi = owner.as_index();
+    if fresh {
+        if st.fresh[oi] == 0 {
+            return Err(RuleError::Illegal("no fresh ship to hit"));
+        }
+        st.fresh[oi] -= 1;
+        st.damaged[oi] += 1;
+        return Ok(());
+    }
+    if st.damaged[oi] == 0 {
+        return Err(RuleError::Illegal("no damaged ship to hit"));
+    }
+    st.damaged[oi] -= 1;
+    s.player_mut(taker).trophies[oi][TrophyKind::Ship.as_index()] += 1;
+    Ok(())
+}
+
+/// (`hitBuilding` in game.ts.)
+fn hit_building(s: &mut GameState, v: &VariantDef, system: SystemId, index: usize, taker: Player) {
+    let st = &mut s.systems[system.as_index()];
+    let Some(&b) = st.buildings.as_slice().get(index) else {
+        return;
+    };
+    if !b.damaged() {
+        st.buildings.as_mut_slice()[index].set_damaged(true);
+        return;
+    }
+    st.buildings.remove(index);
+    let kind = match b.kind() {
+        BuildingKind::City => TrophyKind::City,
+        BuildingKind::Starport => TrophyKind::Starport,
+    };
+    s.player_mut(taker).trophies[b.player().as_index()][kind.as_index()] += 1;
+    if b.kind() == BuildingKind::City {
+        destroy_city(s, v, taker, b.player(), system);
+    }
+}
+
+/// Provoke Outrage, then Ransack the Court (p16).
+/// (`destroyCity` in game.ts.)
+fn destroy_city(
+    s: &mut GameState,
+    v: &VariantDef,
+    destroyer: Player,
+    victim: Player,
+    system: SystemId,
+) {
+    if let Some(t) = v.systems[system.as_index()].planet_type {
+        provoke_outrage(s, destroyer, t);
+    }
+
+    // Ransack: secure a card holding any of the victim's agents. Engine
+    // ruling — pick the card with the most of them, ties leftmost.
+    let mut target = None;
+    let mut most = 0u8;
+    for (i, slot) in s.court.iter().enumerate() {
+        if slot.agents[victim.as_index()] > most {
+            most = slot.agents[victim.as_index()];
+            target = Some(i);
+        }
+    }
+    if let Some(i) = target {
+        secure_card(s, v, destroyer, i, true).expect("ransack target exists");
+    }
+}
+
+/// Advance or finish the battle once a hit has been assigned.
+/// (`settleBattle` in game.ts.)
+fn settle_battle(s: &mut GameState, v: &VariantDef) {
+    // R3: a Ransack can secure a Vox card mid-battle; answer the pendingVox
+    // before continuing.
+    if s.pending_vox.is_some() {
+        return;
+    }
+    let Some(mut b) = s.battle else { return };
+    let st = &s.systems[b.system.as_index()];
+    let ai = b.attacker.as_index();
+    let di = b.defender.as_index();
+
+    // Drop hits that have nothing left to land on.
+    if b.self_hits > 0 && st.fresh[ai] + st.damaged[ai] == 0 {
+        b.self_hits = 0;
+    }
+    let defender_ships = st.fresh[di] + st.damaged[di];
+    let defender_buildings = st.buildings.iter().any(|x| x.player() == b.defender);
+    if b.hits > 0 && defender_ships == 0 && !defender_buildings {
+        b.hits = 0;
+    }
+    if b.building_hits > 0 && !defender_buildings {
+        b.building_hits = 0;
+    }
+    if b.keys > 0 {
+        let victim = s.player(b.defender);
+        // R3: Sworn Guardians (theft immunity) narrows this to the shield
+        // card alone.
+        let can_steal = victim
+            .resources
+            .iter()
+            .enumerate()
+            .any(|(i, r)| r.is_some() && raid_cost(i) <= b.keys)
+            || victim
+                .guild_cards
+                .iter()
+                .any(|&c| court_card(c).raid_cost <= b.keys);
+        if !can_steal || s.ships_of(b.system, b.attacker) == 0 {
+            b.keys = 0;
+        }
+    }
+
+    if b.self_hits == 0 && b.hits == 0 && b.building_hits == 0 && b.keys == 0 {
+        s.battle = None;
+        s.phase = Phase::Actions;
+        after_action(s, v);
+        return;
+    }
+    s.battle = Some(b);
+    s.phase = Phase::BattleAssign;
+}
+
 // --- turn / round / chapter flow -------------------------------------------
+
+/// After any action: if nothing can still be spent, the turn ends itself.
+/// (`afterAction` in game.ts.)
+fn after_action(s: &mut GameState, v: &VariantDef) {
+    // R3: a secured Vox card is answered before the turn can advance or
+    // end.
+    let Some(turn) = s.turn else { return };
+    if turn.pips_left == 0 && turn.free_actions.is_empty() {
+        end_turn(s, v);
+    }
+}
 
 /// (`endTurn` in game.ts.)
 fn end_turn(s: &mut GameState, v: &VariantDef) {
@@ -906,9 +1922,20 @@ fn end_chapter(s: &mut GameState, v: &VariantDef) {
         s.player_states[p].hand.clear();
     }
 
-    // R2: scoreChapter — score every declared ambition into Power, return
-    //     Trophies when Warlord scores and Captives when Tyrant scores, and
-    //     apply the Cartel squeeze.
+    let scores = score_chapter(s, v);
+    for p in 0..s.players as usize {
+        s.player_states[p].power += scores.gained[p];
+    }
+
+    let scored = |a: AmbitionId| scores.results.iter().any(|r| r.ambition == a);
+    if scored(AmbitionId::Warlord) {
+        return_trophies(s);
+    }
+    if scored(AmbitionId::Tyrant) {
+        return_captives(s);
+    }
+    // R3: cartelSqueeze — "after scoring, Rivals discard all Material /
+    // Fuel" onto a held Cartel card (p20); no Cartel passive is active yet.
 
     for a in 0..AmbitionId::COUNT {
         for i in 0..s.declared[a].len() {
@@ -928,6 +1955,41 @@ fn end_chapter(s: &mut GameState, v: &VariantDef) {
     }
     s.chapter += 1;
     s.phase = Phase::Deal;
+}
+
+/// Trophies go home: pieces to their supplies, cities back onto their
+/// board. (`returnTrophies` in game.ts.)
+fn return_trophies(s: &mut GameState) {
+    for p in 0..s.players as usize {
+        let trophies = s.player_states[p].trophies;
+        s.player_states[p].trophies = [[0; TrophyKind::COUNT]; crate::state::MAX_SEATS];
+        for (oi, counts) in trophies.iter().enumerate() {
+            let cities = counts[TrophyKind::City.as_index()];
+            {
+                let owner = &mut s.player_states[oi];
+                owner.ships_supply += counts[TrophyKind::Ship.as_index()];
+                owner.starports_supply += counts[TrophyKind::Starport.as_index()];
+                owner.agents_supply += counts[TrophyKind::Agent.as_index()];
+                owner.cities_used = owner.cities_used.saturating_sub(cities);
+            }
+            if cities > 0 {
+                // The returning cities cover resource slots again.
+                s.compact_resources_of(Player(oi as u8));
+            }
+        }
+    }
+}
+
+/// Captured agents go back to their owners' supplies.
+/// (`returnCaptives` in game.ts.)
+fn return_captives(s: &mut GameState) {
+    for p in 0..s.players as usize {
+        let captives = s.player_states[p].captives;
+        s.player_states[p].captives = [0; crate::state::MAX_SEATS];
+        for (oi, n) in captives.iter().enumerate() {
+            s.player_states[oi].agents_supply += n;
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------

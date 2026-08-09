@@ -7,7 +7,8 @@
 //!
 //! Records: `GameState` memcpy throughput (the operation that replaces the
 //! TS `cloneState` hot path), `apply_action_mut` throughput on a fixed
-//! trick cycle, and full random-game throughput over the R1 phase set.
+//! trick cycle, and full random-game throughput — complete games (board
+//! actions, battles, scoring) as of R2.
 
 use arcs_engine::game::{apply_action_mut, get_pending, legal_actions, resolve_chance_mut};
 use arcs_engine::{Action, GameState, Pending, Rng, SetupMode, SplitMix64, make_variant, new_game};
@@ -60,7 +61,7 @@ fn clone_and_apply_throughput() {
     }
     per_op("apply (copy+3 actions)", iters * 3, t.elapsed());
 
-    // --- full random games over the R1 phase set ---
+    // --- full random games (complete rules as of R2) ---
     let games = 3_000u64;
     let mut decisions = 0u64;
     let mut acts = Vec::new();

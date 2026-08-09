@@ -1,4 +1,11 @@
-//! Ambition markers (rulebook p18-p19), mirroring `src/engine/ambitions.ts`.
+//! Ambition markers and end-of-chapter scoring (rulebook p18-p19), mirroring
+//! `src/engine/ambitions.ts`.
+
+use crate::court::court_card;
+use crate::inline_vec::InlineVec;
+use crate::player_board::{BONUS_FIRST_BOTH_SLOTS, BONUS_FIRST_ONE_SLOT, uncovered_bonuses};
+use crate::state::{MAX_SEATS, PlayerState};
+use crate::types::{AmbitionId, Player, ResourceType};
 
 /// Power for first and second place on one side of a marker.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -84,6 +91,196 @@ pub const fn marker_value(
 ) -> MarkerSide {
     let m = &markers[index];
     if flipped { m.orange } else { m.blue }
+}
+
+// ---------------------------------------------------------------------------
+// Counting ambitions
+// ---------------------------------------------------------------------------
+
+/// Resource + Guild-card icons of the given types a player holds.
+/// (`icons` in ambitions.ts. R3: add the resources sitting on a held Cartel
+/// card — "you add it to Tycoon but can't spend it" (p20) — once the Cartel
+/// passive is active.)
+fn icons(p: &PlayerState, types: &[ResourceType]) -> u8 {
+    let mut n = 0;
+    for r in p.resources.iter().flatten() {
+        if types.contains(r) {
+            n += 1;
+        }
+    }
+    for &id in p.guild_cards.iter() {
+        if let Some(suit) = court_card(id).suit
+            && types.contains(&suit)
+        {
+            n += 1;
+        }
+    }
+    n
+}
+
+/// What a player has toward one ambition (p18).
+/// (`ambitionCount` in ambitions.ts.)
+pub fn ambition_count(p: &PlayerState, ambition: AmbitionId) -> u8 {
+    use ResourceType::{Fuel, Material, Psionic, Relic};
+    match ambition {
+        AmbitionId::Tycoon => icons(p, &[Material, Fuel]),
+        AmbitionId::Tyrant => p.captive_count(),
+        AmbitionId::Warlord => p.trophy_count(),
+        AmbitionId::Keeper => icons(p, &[Relic]),
+        AmbitionId::Empath => icons(p, &[Psionic]),
+    }
+}
+
+/// One scored ambition box. Seats beyond `players` stay zero.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct AmbitionResult {
+    pub ambition: AmbitionId,
+    /// Summed first-place Power of every marker in the box.
+    pub first: u8,
+    /// Summed second-place Power.
+    pub second: u8,
+    /// Counts per player, plus the 2-player phantom alongside.
+    pub counts: [u8; MAX_SEATS],
+    pub phantom: u8,
+    pub first_place: InlineVec<Player, MAX_SEATS>,
+    pub second_place: InlineVec<Player, MAX_SEATS>,
+    pub awards: [u8; MAX_SEATS],
+}
+
+/// Score one ambition box (`scoreAmbition` in ambitions.ts).
+///
+/// Ties for first: all tied players take second place instead. Ties for
+/// second: nobody places. You cannot place with a count of 0 ("Qualifying",
+/// p18). Bonus city Power applies only to an outright first place.
+pub fn score_ambition(
+    s: &crate::state::GameState,
+    v: &crate::setup::VariantDef,
+    ambition: AmbitionId,
+) -> Option<AmbitionResult> {
+    let markers = &s.declared[ambition.as_index()];
+    if markers.is_empty() {
+        return None;
+    }
+
+    let mut first = 0u8;
+    let mut second = 0u8;
+    for &i in markers.iter() {
+        let value = marker_value(&v.ambition_markers, i as usize, s.flipped[i as usize]);
+        first += value.first;
+        second += value.second;
+    }
+
+    let players = s.players as usize;
+    let mut counts = [0u8; MAX_SEATS];
+    for (i, c) in counts.iter_mut().enumerate().take(players) {
+        *c = ambition_count(&s.player_states[i], ambition);
+    }
+    let phantom = s.phantom[ambition.as_index()];
+
+    let top = counts[..players]
+        .iter()
+        .copied()
+        .max()
+        .unwrap()
+        .max(phantom);
+    let mut awards = [0u8; MAX_SEATS];
+    let mut first_place = InlineVec::new();
+    let mut second_place = InlineVec::new();
+
+    if top > 0 {
+        let top_players: InlineVec<usize, MAX_SEATS> = (0..players)
+            .filter(|&i| counts[i] == top)
+            .collect::<InlineVec<usize, MAX_SEATS>>();
+        let phantom_top = phantom == top;
+        let tied_for_first = top_players.len() + usize::from(phantom_top) > 1;
+
+        if !tied_for_first && top_players.len() == 1 {
+            // Outright first place.
+            let winner = top_players.as_slice()[0];
+            first_place.push(Player(winner as u8));
+            awards[winner] += first + bonus_city_power(&s.player_states[winner]);
+
+            // Second place goes to the next distinct positive count, unless
+            // tied.
+            let runner_up = counts[..players]
+                .iter()
+                .copied()
+                .chain(core::iter::once(phantom))
+                .filter(|&c| c < top && c > 0)
+                .max();
+            if let Some(runner_up) = runner_up {
+                let runners: InlineVec<usize, MAX_SEATS> =
+                    (0..players).filter(|&i| counts[i] == runner_up).collect();
+                let phantom_runner = phantom == runner_up;
+                if runners.len() + usize::from(phantom_runner) == 1 && runners.len() == 1 {
+                    let r = runners.as_slice()[0];
+                    second_place.push(Player(r as u8));
+                    awards[r] += second;
+                }
+            }
+        } else {
+            // Everyone tied for first drops to second place; no bonus city
+            // Power.
+            for &i in top_players.iter() {
+                second_place.push(Player(i as u8));
+                awards[i] += second;
+            }
+        }
+    }
+
+    Some(AmbitionResult {
+        ambition,
+        first,
+        second,
+        counts,
+        phantom,
+        first_place,
+        second_place,
+        awards,
+    })
+}
+
+/// +2 / +5 for an outright first place, by uncovered city slots (p18).
+/// (`bonusCityPower` in ambitions.ts.)
+pub fn bonus_city_power(p: &PlayerState) -> u8 {
+    let (plus_two, plus_three) = uncovered_bonuses(p.cities_used);
+    if plus_two && plus_three {
+        BONUS_FIRST_BOTH_SLOTS
+    } else if plus_two {
+        BONUS_FIRST_ONE_SLOT
+    } else {
+        0
+    }
+}
+
+/// Score every declared ambition box (`scoreChapter` in ambitions.ts).
+pub struct ChapterScore {
+    pub results: InlineVec<AmbitionResult, { AmbitionId::COUNT }>,
+    pub gained: [u8; MAX_SEATS],
+}
+
+pub fn score_chapter(s: &crate::state::GameState, v: &crate::setup::VariantDef) -> ChapterScore {
+    let mut results = InlineVec::filled(AmbitionResult {
+        ambition: AmbitionId::Tycoon,
+        first: 0,
+        second: 0,
+        counts: [0; MAX_SEATS],
+        phantom: 0,
+        first_place: InlineVec::new(),
+        second_place: InlineVec::new(),
+        awards: [0; MAX_SEATS],
+    });
+    let mut gained = [0u8; MAX_SEATS];
+    for ambition in AmbitionId::ALL {
+        let Some(r) = score_ambition(s, v, ambition) else {
+            continue;
+        };
+        for (g, a) in gained.iter_mut().zip(r.awards) {
+            *g += a;
+        }
+        results.push(r);
+    }
+    ChapterScore { results, gained }
 }
 
 #[cfg(test)]
