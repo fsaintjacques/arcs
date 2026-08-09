@@ -123,6 +123,25 @@ The general lesson is that the imperfect-information boundary needs a test that
 asks "could this world actually be true", not just "does the observer's own
 hand survive the round trip". The latter passed throughout.
 
+### Thinking time measured inside saturated workers is contention, not cost
+
+The gauntlet's budget gate originally timed the candidate's `choose()` calls
+wherever they ran. On the worker-pool runner that meant nine threads of
+search agents saturating ten cores — plus, that day, a second experiment
+running alongside — and `mcts` was reported at **910 ms per decision**
+against its real, in-process cost of about **10 ms**. The strength number
+from the same batch was fine (decisions are seeded; contention changes when
+they finish, not what they choose), but a budget gate fed by that clock
+would have failed every candidate the moment the machine got busy.
+
+The fix: the parallel gauntlet now measures thinking time in a short serial
+sample after the batch (`timingGames`, default one paired block). Thinking
+time is a property of the agent; wall-clock inside a saturated pool is a
+property of the pool. The worker pool itself is healthy — 18 identical
+`mcts` games ran 3.53 s/game serially and 0.70 s/game across nine workers, a
+5× speedup — which is exactly why the 91× reading had to be the clock and
+not the work.
+
 ## Inferring hands from play: a negative result
 
 Arcs looked unusually friendly to belief modelling. The hidden state is tiny —
@@ -504,23 +523,71 @@ Concretely: a hand-quality term (cards held, pip total, suit spread relative to
 the current lead) is now the highest-value thing to add to `eval.ts`, ahead of
 weight tuning on the terms already there.
 
+## The hand-quality term arrived backwards, and one line turned it around
+
+`eval.ts` now carries the terms the section above asked for: total pips in
+hand (`handPips`), a per-card bonus when the card's suit can act on the
+actual position (`handActionable` — an Aggression card with no reachable
+fight is just a number), holding the highest live card of a suit
+(`handHighCard`), a `declarableLead` term for strictly leading an undeclared
+ambition while a marker remains to declare it, and per-type resource pricing
+(`resourceValue`: Relic and Psionic at 0.85, Material and Fuel at 0.65,
+Weapon at 0.5, replacing the flat 0.7 the map's type counts never justified).
+
+First measurement, `greedy` with the new terms against the frozen
+`anchor-greedy-v0`, 240 paired games: **−2.5 ± 12.6**. No better than the
+weights it was supposed to improve on, and pointing the wrong way.
+
+The diagnosis is worth keeping. Leading a card *converts* its pips into the
+turn's actions — the pips leave the hand and reappear as `turn.pipsLeft`. A
+term that prices the stock in hand and credits nothing for the flow it
+becomes taught greedy to protect its inventory: it started leading its
+*low*-pip cards to keep the high-pip ones in hand, forfeiting the very
+actions the pips exist to buy. One line — crediting `turn.pipsLeft` at the
+same rate as pips still in hand — flipped the identical 240-game row to
+**+33.8 ± 10.8, separated**, a 55.8% absolute win rate at a three-player
+table, and replicated at a fresh seed (**+41.3 ± 14.4**, 60.8%).
+
+The general lesson joins the cascade-settling one: evaluation terms are
+altitude-dependent. A 1-ply search reads a stock term as "never spend the
+stock" unless the evaluation also sees what spending it buys. Any future
+term that prices a resource a bot must *use* (cards, resources, agents)
+needs its conversion credited, or shallow search will hoard it.
+
+Two honest footnotes. First, `mcts` with the same weights read
+**−3.8 ± 14.2** against `anchor-mcts300-v0` — flat. Its evaluation is
+applied thirty random decisions downstream of the tree at rollout leaves,
+which dilutes any leaf-level improvement; the truncated-search agent planned
+next applies the evaluation at the leaf directly and is where these terms
+should start paying inside search. Pricing pending Union attachments as
+hand-card claims (the same stock-without-flow shape again) nudged the row to
+**+6.3 ± 13.2** — point-positive, still not separated, promoted on the
+no-regression criterion.
+
+Second, re-running the 40-game instrumentation says the never-taken trio was
+only half blind spot. Farseers' recycle moved from 0 of 998 offers to **2 of
+102** — priced now, and taken when the hand is bad enough, which is the
+correct rate for an ability that also costs its psionic icon and can hand a
+rival the Empath lead. Union attachment stayed at **0 of 93**, but for a
+legible reason: the claim maxes out at a 4-pip card against a full
+Guild-card price under the hand-set weights, so whether it should ever fire
+is now a threshold the tuner owns, not a payoff the evaluation cannot see.
+The mulligan and the recycle both turn on what the hand is worth, which is
+what the tests assert.
+
 ## Open questions
 
-- **A hand-quality term in `eval.ts`.** The highest-value item on this list, for
-  the reason measured above: three abilities are offered over a thousand times
-  between them and never taken, because the evaluation has no way to say that a
-  better hand is worth something.
-- **Ambition timing.** No bot yet reasons about *when* to declare. The zero
-  marker makes a declared lead card trivially surpassable, so declaring costs
-  the initiative — a tradeoff none of the current evaluations model. Two cards
-  now bear directly on it: Secret Order and Galactic Bards both suppress the zero
-  marker, so a bot holding either should declare far more freely, and none of
-  them notices.
-- **Weight tuning.** `eval.ts` weights are hand-set, and the map correction gave
-  a concrete reason to expect gains: Relic and Psionic are the scarce planet
-  types but the evaluation prices all five resources alike, and Weapon — the
-  commonest type — scores no ambition at all. A CEM or paired-seed grid search
-  over the weights is the obvious next step.
+- **Ambition timing, the initiative half.** The `declarableLead` term now
+  prices *holding* a declarable lead, but no bot yet reasons about the cost
+  side: the zero marker makes a declared lead card trivially surpassable, so
+  declaring spends the initiative — a tradeoff none of the evaluations model.
+  Two cards bear directly on it: Secret Order and Galactic Bards both suppress
+  the zero marker, so a bot holding either should declare far more freely, and
+  none of them notices.
+- **Weight tuning.** All the `eval.ts` weights — including the new hand terms
+  and the scarcity prices, which are hand-guessed — are unfitted. A CEM run
+  over paired seeds is the next step, and the worker pool makes its
+  population evaluations affordable.
 - **Batch size — still the binding constraint.** Pairing removed the bias but not
   the spread, so the 120-game rows still carry ±15 to ±17. The engine runs ~1000
   random games a second and `greedy` about 35, so 2000-game batches are minutes

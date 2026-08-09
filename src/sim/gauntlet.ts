@@ -28,6 +28,13 @@ export interface GauntletOptions {
   budgetMs?: number;
   /** Threads (default 1: in-process, exactly reproducible in tests). */
   workers?: number;
+  /**
+   * Games in the serial timing sample when running parallel (default 6 — one
+   * paired block). Thinking time is a property of the agent, not of batch
+   * contention: timed inside saturated workers, mcts reported 910ms/decision
+   * against its real ~10ms, so the budget gate is measured in-process.
+   */
+  timingGames?: number;
   /** `deck` (default) or `draw` — see SetupMode. */
   setupMode?: SetupMode;
   onProgress?: (anchor: string, done: number, total: number) => void;
@@ -82,27 +89,32 @@ export async function runGauntlet(
 
   for (const anchor of anchors) {
     const sink = { ms: 0, decisions: 0 };
+    const timedTable = () => [
+      timed(makeAgent(candidate.name, candidate.opts), sink),
+      makeAgent(anchor.name, anchor.opts),
+      makeAgent(anchor.name, anchor.opts),
+    ];
+
     let sim: SimResult;
     if (workers > 1) {
-      const parallel = await simulateParallel([candidate, anchor, anchor], {
+      sim = await simulateParallel([candidate, anchor, anchor], {
         players: 3,
         games: opts.gamesPerAnchor,
         seed: opts.seed,
         setupMode: opts.setupMode,
         workers,
-        timeAgentIndex: 0,
         onProgress: (done, total) => opts.onProgress?.(anchor.name, done, total),
       });
-      sim = parallel;
-      sink.ms = parallel.timing?.ms ?? 0;
-      sink.decisions = parallel.timing?.decisions ?? 0;
+      // The budget gate is timed in-process on a short serial sample — see
+      // the `timingGames` note above.
+      simulate(timedTable(), {
+        players: 3,
+        games: opts.timingGames ?? 6,
+        seed: opts.seed,
+        setupMode: opts.setupMode,
+      });
     } else {
-      const table = [
-        timed(makeAgent(candidate.name, candidate.opts), sink),
-        makeAgent(anchor.name, anchor.opts),
-        makeAgent(anchor.name, anchor.opts),
-      ];
-      sim = simulate(table, {
+      sim = simulate(timedTable(), {
         players: 3,
         games: opts.gamesPerAnchor,
         seed: opts.seed,

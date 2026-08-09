@@ -13,7 +13,12 @@
  */
 import type { Weights } from './eval';
 
-/** `defaultWeights` as they stood when the gauntlet was established. */
+/**
+ * `defaultWeights` as they stood when the gauntlet was established,
+ * re-expressed whenever the `Weights` struct grows: terms added later carry
+ * weight 0 and the flat `resource: 0.7` became a uniform per-type map, so
+ * the evaluation computes the identical number it did on freeze day.
+ */
 export const anchorWeightsV0: Weights = {
   power: 1,
   declaredLead: 0.9,
@@ -25,12 +30,16 @@ export const anchorWeightsV0: Weights = {
   city: 2.2,
   control: 0.5,
   resourceSlot: 0.4,
-  resource: 0.7,
+  resourceValue: { material: 0.7, fuel: 0.7, weapon: 0.7, relic: 0.7, psionic: 0.7 },
   courtAgent: 0.35,
   courtLead: 1.1,
   guildCard: 1.0,
   initiative: 1.2,
   handCard: 0.25,
+  handPips: 0,
+  handActionable: 0,
+  handHighCard: 0,
+  declarableLead: 0,
   outrage: 1.0,
 };
 
