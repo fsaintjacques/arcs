@@ -14,6 +14,7 @@ pub mod dice;
 pub mod game;
 pub mod inline_vec;
 pub mod map;
+pub mod observe;
 pub mod player_board;
 pub mod powers;
 pub mod rng;
@@ -30,13 +31,16 @@ pub use game::{
     legal_actions, new_game, resolve_chance_mut, standings, winner,
 };
 pub use inline_vec::InlineVec;
+pub use observe::{
+    DeterminizeOptions, HIDDEN_CARD, Observation, determinize, observe, sample_world,
+};
 pub use powers::{
     AbilitySource, ability_sources, cartel_holder, cartel_icons, discard_guild_card,
     gain_guild_card, provoke_outrage, steal_guild_card, survives_outrage, weapon_icons,
 };
 pub use rng::{ChanceSource, Rng, SplitMix64};
 pub use setup::{SetupMode, VariantDef, make_variant};
-pub use state::{GameState, PlayerState, TurnState};
+pub use state::{GameState, MAX_SEATS, PlayerState, TurnState};
 pub use types::{
     ActionCardId, ActionKind, AmbitionId, BuildingKind, CourtCardId, DieType, Phase, PlayMode,
     Player, ResourceType, Suit, SystemId,
