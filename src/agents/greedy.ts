@@ -12,16 +12,8 @@
  * chance nodes from the RNG and resolving the agent's own follow-up decisions
  * with the same greedy rule.
  */
-import {
-  applyAction,
-  applyBattleRollMut,
-  cloneState,
-  determinize,
-  getPending,
-  resolveChance,
-} from '../engine';
+import { applyAction, determinize, getPending, resolveChance } from '../engine';
 import type { Action, GameState, VariantDef } from '../engine';
-import { battleDistribution, topMass } from './dicemath';
 import { defaultWeights, relativeEvaluate, type Weights } from './eval';
 import type { Agent, AgentCtx } from './types';
 
@@ -30,22 +22,11 @@ export interface GreedyOpts {
   /** Play cascades out before scoring. Turning this off makes a weaker bot. */
   settle: boolean;
   /**
-   * Cascade chance nodes are sampled this many times and the values
-   * averaged, so a battle is judged on (an estimate of) its expectation.
+   * Chance nodes inside a cascade are sampled this many times and the
+   * resulting values averaged, so a battle is judged on its expectation rather
+   * than on one lucky roll.
    */
   samples: number;
-  /**
-   * How to value the battle roll. `sample` (default) averages `samples`
-   * rolls; `exact` takes the expectation over `battleDistribution`. Exact
-   * measured *weaker* for this 1-ply agent — see FINDINGS.md: with ~17
-   * battle variants on offer, the argmax over noisy estimates plays the
-   * optimistic tail, and that optimism was subsidising battles the
-   * evaluation underprices. Kept as an option for search agents and
-   * experiments.
-   */
-  battles: 'sample' | 'exact';
-  /** Probability mass enumerated when `battles: 'exact'` (default 0.95). */
-  battleMass: number;
 }
 
 /** Phases that belong to the action currently being resolved. */
@@ -99,8 +80,6 @@ export function makeGreedy(opts: Partial<GreedyOpts> = {}, name = 'greedy'): Age
   const w: Weights = { ...defaultWeights, ...opts.weights };
   const doSettle = opts.settle ?? true;
   const samples = Math.max(1, opts.samples ?? 3);
-  const exactBattles = opts.battles === 'exact';
-  const battleMass = opts.battleMass ?? 0.95;
 
   return {
     name,
@@ -121,27 +100,8 @@ export function makeGreedy(opts: Partial<GreedyOpts> = {}, name = 'greedy'): Age
         let value: number;
         if (!doSettle) {
           value = relativeEvaluate(after, v, ctx.player, w);
-        } else if (
-          exactBattles &&
-          getPending(after, v).kind === 'chance' &&
-          after.phase === 'battleRoll' &&
-          after.battle!.pendingReroll === 0
-        ) {
-          // The dice are printed: value the battle as the exact expectation
-          // over its outcome distribution, each outcome settled to the end
-          // of the action, instead of averaging a few sampled rolls.
-          const d = after.battle!.dice;
-          const outcomes = topMass(battleDistribution(d.assault, d.skirmish, d.raid), battleMass);
-          let total = 0;
-          for (const o of outcomes) {
-            const branch = cloneState(after);
-            applyBattleRollMut(branch, v, o.totals);
-            total += o.p * relativeEvaluate(settle(branch, v, ctx.player, w, ctx.rng), v, ctx.player, w);
-          }
-          value = total;
         } else if (getPending(after, v).kind === 'chance' && CASCADE_PHASES.has(after.phase)) {
-          // A cascade chance with no closed form here (Skirmishers reroll):
-          // average over sampled resolutions.
+          // Average over sampled rolls so a battle is judged on expectation.
           let total = 0;
           for (let i = 0; i < samples; i++) {
             total += relativeEvaluate(settle(after, v, ctx.player, w, ctx.rng), v, ctx.player, w);

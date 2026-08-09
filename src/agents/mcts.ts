@@ -18,7 +18,7 @@
  *     which is what makes a fixed iteration budget usable at this branching
  *     factor.
  */
-import { applyActionMut, determinize, encodeAction, getPending, resolveChanceMut } from '../engine';
+import { applyActionMut, determinize, getPending, resolveChanceMut } from '../engine';
 import type { Action, GameState, RNG, VariantDef } from '../engine';
 import { defaultWeights, type Weights } from './eval';
 import { narrow, rollout, terminalVector, valueVector } from './rollout';
@@ -58,7 +58,9 @@ function newNode(player: number, action: Action | null, players: number): Node {
   };
 }
 
-const key = encodeAction;
+function key(a: Action): string {
+  return JSON.stringify(a);
+}
 
 /**
  * UCT over the children that are legal *in this determinization*. Availability

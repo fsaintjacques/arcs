@@ -12,4 +12,3 @@ export * from './setup';
 export * from './game';
 export * from './belief';
 export * from './observe';
-export * from './encode';
