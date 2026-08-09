@@ -13,6 +13,7 @@ export * from './greedy';
 export * from './montecarlo';
 export * from './mcts';
 export * from './anchors';
+export * from './dicemath';
 
 export const agents: Record<string, AgentFactory> = {
   /** Uniform random over legal actions — the floor. */
