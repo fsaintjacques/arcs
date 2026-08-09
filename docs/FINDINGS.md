@@ -575,6 +575,46 @@ is now a threshold the tuner owns, not a payoff the evaluation cannot see.
 The mulligan and the recycle both turn on what the hand is worth, which is
 what the tests assert.
 
+## Exact dice made the 1-ply bot weaker
+
+The battle dice are printed, so a battle's outcome distribution is a small
+exact convolution (`src/agents/dicemath.ts`, memoized over the 343 possible
+pools) — the lever an earlier section said nobody pulled. Wiring it into
+`greedy` so a battle is valued as the true expectation instead of the mean
+of three sampled rolls produced, on the same deals as the hand-quality rows:
+
+| battle valuation | seed 11 | seed 42 |
+|---|---|---|
+| 3 sampled rolls | +33.8 ± 10.8 | +41.3 ± 14.4 |
+| exact expectation | +27.5 ± 12.6 | +27.5 ± 14.0 |
+
+Both readings still beat the anchor, but the exact version runs 6–14 points
+behind the sampler it was supposed to improve on, in the same direction at
+both seeds. The mechanism: a battle node offers ~17 dice splits, and an
+argmax over noisy 3-sample estimates systematically selects the estimates
+that got lucky — it plays battles priced near their optimistic tail. The
+evaluation *underprices* fighting (trophies and keys are worth more than
+their weights say — the under-fighting theme recurs across FINDINGS), so
+that optimism was a subsidy pointing the right way, and removing the noise
+removed the subsidy.
+
+`greedy` therefore keeps sampling by default (`battles: 'sample'`), with
+`'exact'` as an option; the honest fix is a better-priced evaluation, not a
+worse estimator, and the tuner now exists to look for it. The convolution
+itself is unaffected and is what the candidate generator and the truncated
+search need — those want E[hits] and E[keys] *rankings*, where noise has no
+compensating virtue.
+
+Also in this change: search node keys moved from `JSON.stringify` to a
+canonical `encodeAction` (`src/engine/encode.ts`). Measured on real action
+lists it is only ~1.1× faster — V8's stringify is quick — so the case for it
+is not speed but stability: keys no longer depend on literal key order, an
+exhaustive switch breaks the build when an Action variant is added, and the
+encodings distinguish cases stringify only distinguishes by accident
+(Farseers' `cards: []` vs no cards at all). Provably strength-neutral: both
+keyings are injective over full-game action sweeps (asserted in tests), so
+the search tree is identical.
+
 ## Open questions
 
 - **Ambition timing, the initiative half.** The `declarableLead` term now
