@@ -49,7 +49,11 @@ export interface GameHandle {
   humanSeats: number[];
   log: LogEntry[];
   play: (a: Action) => void;
-  /** Rewind to the previous human decision (or the last one, from game over). */
+  /**
+   * Rewind to the previous human decision (or the last one, from game over).
+   * Never crosses a reveal: once dice are rolled, a card is dealt or drawn, or
+   * a Court slot refills, everything before that moment is out of reach.
+   */
   undo: () => void;
   canUndo: boolean;
   reset: (config?: Partial<GameConfig>) => void;
@@ -98,6 +102,40 @@ interface Snapshot {
   log: LogEntry[];
 }
 
+/**
+ * The things an undo must never carry a player back across: hidden
+ * information that has since been revealed. Rewinding past a reveal would let
+ * the player redecide with knowledge they did not have — roll dice and take
+ * the battle back, secure a card and unsee what refilled the slot.
+ *
+ * Detected from state deltas rather than action types, because reveals happen
+ * transitively — destroying a city Ransacks the Court, securing a Vox card
+ * resolves it mid-action — and an enumeration of action names would go stale.
+ * A chance node resolving (dice, deal) is flagged at the call site; the rest
+ * is: the Court deck shrank (a hidden card flipped up), a human hand holds a
+ * card it did not hold before (raid, mulligan redraw), or a Farseers peek
+ * opened a Rival's hand.
+ */
+export interface InfoMark {
+  courtDeck: number;
+  peeking: boolean;
+  hands: Set<number>[];
+}
+
+export function markInfo(s: GameState, humanSeats: number[]): InfoMark {
+  return {
+    courtDeck: s.courtDeck.length,
+    peeking: s.peek !== null,
+    hands: humanSeats.map((h) => new Set(s.playerStates[h].hand)),
+  };
+}
+
+export function revealedSince(s: GameState, humanSeats: number[], before: InfoMark): boolean {
+  if (s.courtDeck.length < before.courtDeck) return true;
+  if (s.peek !== null && !before.peeking) return true;
+  return humanSeats.some((h, i) => s.playerStates[h].hand.some((c) => !before.hands[i].has(c)));
+}
+
 export function useGame(initial: GameConfig): GameHandle {
   const [config, setConfig] = useState(initial);
   const [, forceRender] = useState(0);
@@ -115,6 +153,8 @@ export function useGame(initial: GameConfig): GameHandle {
   const agentsRef = useRef<(Agent | null)[]>(buildAgents(config));
   const ctxsRef = useRef<AgentCtx[]>([]);
   const undoStack = useRef<Snapshot[]>([]);
+  /** True once hidden information has been revealed since the last snapshot. */
+  const revealedRef = useRef(false);
   const [busy, setBusy] = useState(false);
   const timer = useRef<number | null>(null);
 
@@ -125,6 +165,7 @@ export function useGame(initial: GameConfig): GameHandle {
       stateRef.current = newGame(v, gameStream.current.fn, c.setupIndex);
       logRef.current = [];
       undoStack.current = [];
+      revealedRef.current = false;
       agentsRef.current = buildAgents(c);
       ctxStreams.current = c.seats.map((_, player) =>
         makeStream((c.seed ^ (0x9e3779b9 * (player + 1))) >>> 0),
@@ -159,6 +200,12 @@ export function useGame(initial: GameConfig): GameHandle {
   const pushUndo = useCallback(() => {
     const top = undoStack.current[undoStack.current.length - 1];
     if (top && top.draws === gameStream.current.n && top.log === logRef.current) return;
+    // A reveal happened since the last rewind point: everything before it is
+    // out of reach, and the snapshot about to be pushed becomes the new floor.
+    if (revealedRef.current) {
+      undoStack.current.length = 0;
+      revealedRef.current = false;
+    }
     undoStack.current.push({
       state: cloneState(stateRef.current),
       draws: gameStream.current.n,
@@ -185,6 +232,8 @@ export function useGame(initial: GameConfig): GameHandle {
         return;
       }
       if (node.kind === 'chance') {
+        // Dice and deals are reveals by definition.
+        revealedRef.current = true;
         resolveChanceMut(s, v, gameStream.current.fn);
         continue;
       }
@@ -207,14 +256,17 @@ export function useGame(initial: GameConfig): GameHandle {
         };
         const action = agent.choose(observe(s, v, node.player), node.actions, ctx);
         record(node.player, describeForLog(action, s, v));
+        const humans = config.seats.flatMap((name, i) => (name ? [] : [i]));
+        const before = markInfo(s, humans);
         applyActionMut(s, v, action);
+        if (revealedSince(s, humans, before)) revealedRef.current = true;
         advance();
       }, config.botDelay);
       return;
     }
     setBusy(false);
     bump();
-  }, [bump, config.botDelay, config.players, config.setupIndex, pushUndo, record]);
+  }, [bump, config.botDelay, config.players, config.seats, config.setupIndex, pushUndo, record]);
 
   useEffect(() => {
     advance();
@@ -237,10 +289,13 @@ export function useGame(initial: GameConfig): GameHandle {
       const pending = getPending(cur, v);
       if (pending.kind !== 'decision') return;
       record(pending.player, describeForLog(a, cur, v));
+      const humans = config.seats.flatMap((name, i) => (name ? [] : [i]));
+      const before = markInfo(cur, humans);
       applyActionMut(cur, v, a);
+      if (revealedSince(cur, humans, before)) revealedRef.current = true;
       advance();
     },
-    [advance, config.players, config.setupIndex, record],
+    [advance, config.players, config.seats, config.setupIndex, record],
   );
 
   /**
@@ -258,6 +313,7 @@ export function useGame(initial: GameConfig): GameHandle {
     const snap = undoStack.current[undoStack.current.length - 1];
     stateRef.current = cloneState(snap.state);
     logRef.current = snap.log;
+    revealedRef.current = false;
     gameStream.current.restore(snap.draws);
     ctxStreams.current.forEach((stream, i) => stream.restore(snap.ctxDraws[i] ?? 0));
     setBusy(false);
