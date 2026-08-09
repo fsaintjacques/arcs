@@ -1,0 +1,274 @@
+{
+ "all": [
+  {
+   "id": 0,
+   "suit": "administration",
+   "number": 1,
+   "pips": 4,
+   "ambition": null
+  },
+  {
+   "id": 1,
+   "suit": "administration",
+   "number": 2,
+   "pips": 4,
+   "ambition": "tycoon"
+  },
+  {
+   "id": 2,
+   "suit": "administration",
+   "number": 3,
+   "pips": 3,
+   "ambition": "tyrant"
+  },
+  {
+   "id": 3,
+   "suit": "administration",
+   "number": 4,
+   "pips": 3,
+   "ambition": "warlord"
+  },
+  {
+   "id": 4,
+   "suit": "administration",
+   "number": 5,
+   "pips": 2,
+   "ambition": "keeper"
+  },
+  {
+   "id": 5,
+   "suit": "administration",
+   "number": 6,
+   "pips": 2,
+   "ambition": "empath"
+  },
+  {
+   "id": 6,
+   "suit": "administration",
+   "number": 7,
+   "pips": 1,
+   "ambition": "any"
+  },
+  {
+   "id": 7,
+   "suit": "aggression",
+   "number": 1,
+   "pips": 4,
+   "ambition": null
+  },
+  {
+   "id": 8,
+   "suit": "aggression",
+   "number": 2,
+   "pips": 4,
+   "ambition": "tycoon"
+  },
+  {
+   "id": 9,
+   "suit": "aggression",
+   "number": 3,
+   "pips": 3,
+   "ambition": "tyrant"
+  },
+  {
+   "id": 10,
+   "suit": "aggression",
+   "number": 4,
+   "pips": 3,
+   "ambition": "warlord"
+  },
+  {
+   "id": 11,
+   "suit": "aggression",
+   "number": 5,
+   "pips": 2,
+   "ambition": "keeper"
+  },
+  {
+   "id": 12,
+   "suit": "aggression",
+   "number": 6,
+   "pips": 2,
+   "ambition": "empath"
+  },
+  {
+   "id": 13,
+   "suit": "aggression",
+   "number": 7,
+   "pips": 1,
+   "ambition": "any"
+  },
+  {
+   "id": 14,
+   "suit": "construction",
+   "number": 1,
+   "pips": 4,
+   "ambition": null
+  },
+  {
+   "id": 15,
+   "suit": "construction",
+   "number": 2,
+   "pips": 4,
+   "ambition": "tycoon"
+  },
+  {
+   "id": 16,
+   "suit": "construction",
+   "number": 3,
+   "pips": 3,
+   "ambition": "tyrant"
+  },
+  {
+   "id": 17,
+   "suit": "construction",
+   "number": 4,
+   "pips": 3,
+   "ambition": "warlord"
+  },
+  {
+   "id": 18,
+   "suit": "construction",
+   "number": 5,
+   "pips": 2,
+   "ambition": "keeper"
+  },
+  {
+   "id": 19,
+   "suit": "construction",
+   "number": 6,
+   "pips": 2,
+   "ambition": "empath"
+  },
+  {
+   "id": 20,
+   "suit": "construction",
+   "number": 7,
+   "pips": 1,
+   "ambition": "any"
+  },
+  {
+   "id": 21,
+   "suit": "mobilization",
+   "number": 1,
+   "pips": 4,
+   "ambition": null
+  },
+  {
+   "id": 22,
+   "suit": "mobilization",
+   "number": 2,
+   "pips": 4,
+   "ambition": "tycoon"
+  },
+  {
+   "id": 23,
+   "suit": "mobilization",
+   "number": 3,
+   "pips": 3,
+   "ambition": "tyrant"
+  },
+  {
+   "id": 24,
+   "suit": "mobilization",
+   "number": 4,
+   "pips": 3,
+   "ambition": "warlord"
+  },
+  {
+   "id": 25,
+   "suit": "mobilization",
+   "number": 5,
+   "pips": 2,
+   "ambition": "keeper"
+  },
+  {
+   "id": 26,
+   "suit": "mobilization",
+   "number": 6,
+   "pips": 2,
+   "ambition": "empath"
+  },
+  {
+   "id": 27,
+   "suit": "mobilization",
+   "number": 7,
+   "pips": 1,
+   "ambition": "any"
+  }
+ ],
+ "deck2": [
+  1,
+  2,
+  3,
+  4,
+  5,
+  8,
+  9,
+  10,
+  11,
+  12,
+  15,
+  16,
+  17,
+  18,
+  19,
+  22,
+  23,
+  24,
+  25,
+  26
+ ],
+ "deck3": [
+  1,
+  2,
+  3,
+  4,
+  5,
+  8,
+  9,
+  10,
+  11,
+  12,
+  15,
+  16,
+  17,
+  18,
+  19,
+  22,
+  23,
+  24,
+  25,
+  26
+ ],
+ "deck4": [
+  0,
+  1,
+  2,
+  3,
+  4,
+  5,
+  6,
+  7,
+  8,
+  9,
+  10,
+  11,
+  12,
+  13,
+  14,
+  15,
+  16,
+  17,
+  18,
+  19,
+  20,
+  21,
+  22,
+  23,
+  24,
+  25,
+  26,
+  27
+ ]
+}

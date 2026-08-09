@@ -1,0 +1,21 @@
+[package]
+name = "arcs-engine"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "Core rules engine for Arcs: types, map, decks, dice, setup"
+
+# Zero runtime dependencies. `serde` is an optional derive-only feature;
+# ecosystem crates live in leaf crates only (see the workspace plan).
+[dependencies]
+serde = { version = "1", features = ["derive"], optional = true }
+
+[features]
+serde = ["dep:serde"]
+
+[dev-dependencies]
+serde_json = "1"
+
+[lints]
+workspace = true

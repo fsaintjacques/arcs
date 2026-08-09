@@ -1,0 +1,49 @@
+{
+ "powerThreshold": {
+  "2": 33,
+  "3": 30,
+  "4": 27
+ },
+ "maxChapters": 5,
+ "handSize": 6,
+ "courtRowSize": {
+  "2": 3,
+  "3": 4,
+  "4": 4
+ },
+ "playerBoard": {
+  "citySlots": [
+   {
+    "kind": "resource"
+   },
+   {
+    "kind": "resource"
+   },
+   {
+    "kind": "plusTwo"
+   },
+   {
+    "kind": "resource"
+   },
+   {
+    "kind": "plusThree"
+   }
+  ],
+  "baseResourceSlots": 3,
+  "raidCosts": [
+   1,
+   1,
+   2,
+   2,
+   3,
+   3
+  ],
+  "maxResourceSlots": 6,
+  "citySlotCount": 5,
+  "ships": 15,
+  "starports": 5,
+  "agents": 10,
+  "bonusFirstOneSlot": 2,
+  "bonusFirstBothSlots": 5
+ }
+}
