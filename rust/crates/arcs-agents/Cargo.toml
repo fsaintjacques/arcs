@@ -1,0 +1,22 @@
+[package]
+name = "arcs-agents"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "Evaluation, dice math, candidate generation and the playing agents for Arcs"
+
+# Zero runtime dependencies, like `arcs-engine`; `serde` is a derive-only
+# feature forwarded to the engine. Ecosystem crates live in leaf crates only.
+[dependencies]
+arcs-engine = { path = "../arcs-engine" }
+serde = { version = "1", features = ["derive"], optional = true }
+
+[features]
+serde = ["dep:serde", "arcs-engine/serde"]
+
+[dev-dependencies]
+serde_json = "1"
+
+[lints]
+workspace = true
