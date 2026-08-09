@@ -2,19 +2,24 @@
  * Truncated determinized ISMCTS with PUCT — the search built for the
  * evaluation this repo spent three milestones improving.
  *
- * FINDINGS.md records the same result three times: evaluation quality pays
- * at 1 ply and drowns by thirty random rollout decisions. So this agent has
- * no rollouts. Structure, and why each piece is here:
+ * The design premise — three FINDINGS sections said eval improvements
+ * drown in rollouts, so value leaves with the eval directly — was measured
+ * and *refuted* by this agent's own ablations: at equal time, rollout
+ * leaves beat eval leaves by +18.8±11.5. What actually carries the agent
+ * is using the evaluation as a *policy guide* rather than a value
+ * function. Structure, and why each piece is here:
  *
- *   - **Truncated leaves.** An iteration descends the tree and values the
- *     reached position with `valueVector` directly. The 30-decision random+
- *     rollout was the per-iteration budget hog *and* the filter that kept
- *     eval improvements from mattering; dropping it buys both.
  *   - **PUCT with eval priors.** At a node's expansion, every candidate is
  *     applied once on a clone and scored with `relativeEvaluate`; a softmax
  *     over those scores becomes the prior. Selection is
  *     Q + cPuct · P · √ΣN / (1 + N), with max^n Q per seat as before —
  *     opponents maximise themselves, not a coalition against the root.
+ *     Ablating this costs −37.5±12.1: it is the engine of the gain.
+ *   - **Rollout-valued leaves** (default). One node expands per iteration
+ *     and a random+ rollout values it — noisy, but an estimate of the
+ *     actual game outcome, which the ablations say beats the eval's
+ *     opinion of the position. `rolloutLeaf: false` restores truncated
+ *     eval-valued leaves for experiments.
  *   - **World pooling.** `worlds` determinizations are sampled once per
  *     decision and cycled across iterations, so each world is searched
  *     several times instead of paying `determinize` per iteration.
@@ -63,7 +68,7 @@ export interface Mcts2Opts {
   maxDepth: number;
   /** Ablation: uniform priors instead of eval priors. */
   priors: boolean;
-  /** Ablation: value leaves with a random+ rollout instead of the eval. */
+  /** Rollout-valued leaves (default) vs truncated eval-valued leaves. */
   rolloutLeaf: boolean;
   weights: Partial<Weights>;
 }
@@ -93,7 +98,7 @@ export function makeMcts2(opts: Partial<Mcts2Opts> = {}, name = 'mcts2'): Agent 
   const battleMass = opts.battleMass ?? 0.9;
   const maxDepth = opts.maxDepth ?? 64;
   const usePriors = opts.priors ?? true;
-  const rolloutLeaf = opts.rolloutLeaf ?? false;
+  const rolloutLeaf = opts.rolloutLeaf ?? true;
   const w: Weights = { ...defaultWeights, ...opts.weights };
 
   return {

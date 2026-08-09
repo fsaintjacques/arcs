@@ -73,6 +73,22 @@ export const anchorWeightsV1: Weights = {
 };
 
 /**
+ * The full configuration of `anchor-mcts2-v2` (2026-08-09), pinned value by
+ * value so later changes to makeMcts2's defaults cannot move the yardstick.
+ */
+export const anchorMcts2V2Config = {
+  iterations: 440,
+  cPuct: 1.5,
+  maxActions: 16,
+  worlds: 16,
+  priorTemp: 1.0,
+  battleMass: 0.9,
+  maxDepth: 64,
+  priors: true,
+  rolloutLeaf: true,
+} as const;
+
+/**
  * The gauntlet ladder, oldest to newest. A candidate must beat the newest
  * anchor separated and regress against none of the older ones.
  */
@@ -80,4 +96,5 @@ export const anchorLadder: string[] = [
   'anchor-greedy-v0',
   'anchor-mcts300-v0',
   'anchor-mcts-c-v1',
+  'anchor-mcts2-v2',
 ];

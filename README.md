@@ -154,7 +154,7 @@ modes. Bundled agents:
 | `mcts` | determinized ISMCTS with max^n backup |
 | `mcts-fast` | the same, cheap enough for large batches |
 | `mcts-c` | `mcts` trimming wide nodes with `generateCandidates` instead of blind `narrow` |
-| `mcts2` | truncated PUCT: eval-valued leaves (no rollouts), eval-softmax priors, pooled worlds, exact frontier battles |
+| `mcts2` | PUCT with eval-softmax priors over pooled determinized worlds; rollout-valued leaves (the eval turned out ordinal, not cardinal — see FINDINGS) |
 | `mcts2-play` | the same brain on a 600 ms wall-clock budget, for the Play UI |
 | `greedy-t1` / `mcts-t1` | CEM run-1 weights, experimental (docs/GAUNTLET.md) |
 | `anchor-*` | frozen gauntlet yardsticks — never retuned (src/agents/anchors.ts) |
