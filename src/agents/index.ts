@@ -3,6 +3,7 @@ import { makeGreedy } from './greedy';
 import { makeMcts } from './mcts';
 import { makeMonteCarlo } from './montecarlo';
 import { makeRandom, makeRandomPlus } from './random';
+import { tunedWeightsV1 } from './weights/tuned1';
 import type { Agent, AgentFactory } from './types';
 
 export * from './types';
@@ -29,6 +30,9 @@ export const agents: Record<string, AgentFactory> = {
   mcts: (opts) => makeMcts(opts as never),
   /** A deliberately cheap MCTS, for fast batches. */
   'mcts-fast': (opts) => makeMcts({ iterations: 120, rolloutDepth: 20, ...opts }, 'mcts-fast'),
+  /** CEM run-1 weights (weights/tuned1.ts) — experimental, not promoted. */
+  'greedy-t1': (opts) => makeGreedy({ weights: tunedWeightsV1, ...opts }, 'greedy-t1'),
+  'mcts-t1': (opts) => makeMcts({ weights: tunedWeightsV1, ...opts }, 'mcts-t1'),
   /** Frozen gauntlet anchors — see anchors.ts. Never retune these. */
   'anchor-greedy-v0': (opts) =>
     makeGreedy({ weights: anchorWeightsV0, ...opts }, 'anchor-greedy-v0'),

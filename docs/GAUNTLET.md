@@ -50,6 +50,12 @@ Append-only. One row per (candidate, anchor) pair, produced by
 | 2026-08-09 | greedy (M2 eval) | anchor-greedy-v0 | 240 | +33.8±10.8 | yes | 0.2 | seed 11 |
 | 2026-08-09 | greedy (M2 eval) | anchor-greedy-v0 | 240 | +41.3±14.4 | yes | 0.2 | seed 42, replication |
 | 2026-08-09 | mcts (M2 eval) | anchor-mcts300-v0 | 240 | +6.3±13.2 | no | 9.6 | seed 11; promoted on no-regression — see FINDINGS on rollout dilution |
+| 2026-08-09 | greedy-t1 (CEM run 1) | anchor-greedy-v0 | 240 | +45.0±13.9 | yes | 0.2 | seed 11 |
+| 2026-08-09 | greedy-t1 | greedy | 960 | +18.1±6.5 | yes | 0.2 | seed 7, held-out |
+| 2026-08-09 | greedy-t1 | greedy | 960 | +5.3±6.4 | no | 0.2 | seed 99, held-out |
+| 2026-08-09 | mcts-t1 | mcts | 240 | -6.3±13.2 | no | 10.2 | seed 11 |
+| 2026-08-09 | mcts-t1 | anchor-mcts300-v0 | 240 | +11.3±11.9 | no | 9.9 | seed 11 |
+| 2026-08-09 | mcts-t1 | anchor-mcts300-v0 | 240 | +2.5±10.5 | no | 9.6 | seed 42; transfer gate FAILED — weights not promoted, no new anchor |
 
 ## Human validation
 

@@ -575,6 +575,37 @@ is now a threshold the tuner owns, not a payoff the evaluation cannot see.
 The mulligan and the recycle both turn on what the hand is worth, which is
 what the tests assert.
 
+## The tuner works; the transfer doesn't, yet
+
+First CEM run over the 25 free evaluation weights (`tools/tune-cem.ts`: 30
+generations, population 24, elite 6, 96 paired games per member against the
+M2-default greedy, everything seeded): elite fitness climbed to +20 to +45
+points of win share, and the elite mean is checked in as
+`src/agents/weights/tuned1.ts` (`greedy-t1` / `mcts-t1`).
+
+The weight movements read like judgments, not noise. The scarcity story got
+amplified rather than merely confirmed — Relic 0.85 → 1.23, Psionic → 0.99,
+Weapon → 0.38 — control rose 0.5 → 0.81, hand pips 0.15 → 0.26, and the
+starport, hand-priced at 1.4, was cut to 0.96. Held out to fresh seeds the
+tuned greedy beats `anchor-greedy-v0` by **+45.0 ± 13.9** (the M2 weights
+read +33.8 on the same deals) and the M2-default greedy by +18.1 ± 6.5 and
++5.3 ± 6.4 over two 960-game batches — real, if lumpy across seeds.
+
+The transfer to `mcts` is where the promotion died: +11.3 ± 11.9 and
++2.5 ± 10.5 against the frozen anchor, −6.3 ± 13.2 against the M2-weight
+mcts — nothing separated. The rule was set before the run (a separated mcts
+transfer, or no promotion), so `defaultWeights` stay as they are and no new
+anchor is frozen.
+
+That failure is the third data point in one straight line: hand terms moved
+greedy +34 and mcts +6; exact dice moved greedy −6 and mcts not at all;
+tuned weights move greedy +12-ish and mcts +7-ish, none of it separated.
+Evaluation quality keeps paying at 1 ply and keeps drowning by 30 random
+rollout decisions. The planned truncated-search agent — which values leaves
+with the evaluation directly — is no longer just an optimization; it is the
+only way any of the evaluation work of the last three sections can reach
+the strongest agent. Re-run the tuning transfer the day it exists.
+
 ## Open questions
 
 - **Ambition timing, the initiative half.** The `declarableLead` term now
