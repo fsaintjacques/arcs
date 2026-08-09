@@ -454,6 +454,37 @@ td.leading {
   color: var(--warn);
 }
 
+.pip-track {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+}
+
+.pip-track .pip-circle {
+  display: block;
+}
+
+.undo-btn {
+  margin-left: auto;
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  color: var(--text);
+  border-radius: 6px;
+  padding: 3px 10px;
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.undo-btn:hover:not(:disabled) {
+  border-color: var(--accent);
+}
+
+.undo-btn:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
 .chip-button {
   cursor: pointer;
   color: inherit;

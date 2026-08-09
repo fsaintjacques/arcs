@@ -5,6 +5,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   applyActionMut,
+  cloneState,
   getPending,
   makeVariant,
   mulberry32,
@@ -14,6 +15,7 @@ import {
   standings,
   type Action,
   type GameState,
+  type RNG,
   type VariantDef,
 } from '../engine';
 import { makeAgent, type Agent, type AgentCtx } from '../agents';
@@ -47,12 +49,53 @@ export interface GameHandle {
   humanSeats: number[];
   log: LogEntry[];
   play: (a: Action) => void;
+  /** Rewind to the previous human decision (or the last one, from game over). */
+  undo: () => void;
+  canUndo: boolean;
   reset: (config?: Partial<GameConfig>) => void;
   config: GameConfig;
 }
 
 function buildAgents(config: GameConfig): (Agent | null)[] {
   return config.seats.map((name) => (name ? makeAgent(name) : null));
+}
+
+/**
+ * A seeded RNG that counts its draws, so a snapshot can be restored by
+ * replaying the same stream forward. Undo needs this: state alone is not
+ * enough, because a rewound game would otherwise re-draw different dice and
+ * deals than the ones the player already saw.
+ */
+interface Stream {
+  n: number;
+  fn: RNG;
+  /** Rewind to draw `n` by replaying the stream from its seed. */
+  restore: (n: number) => void;
+}
+
+function makeStream(seed: number): Stream {
+  let raw = mulberry32(seed);
+  const s: Stream = {
+    n: 0,
+    fn: () => {
+      s.n++;
+      return raw();
+    },
+    restore: (n: number) => {
+      raw = mulberry32(seed);
+      for (let i = 0; i < n; i++) raw();
+      s.n = n;
+    },
+  };
+  return s;
+}
+
+/** One rewind point: the game as it stood when a human was asked to decide. */
+interface Snapshot {
+  state: GameState;
+  draws: number;
+  ctxDraws: number[];
+  log: LogEntry[];
 }
 
 export function useGame(initial: GameConfig): GameHandle {
@@ -65,24 +108,30 @@ export function useGame(initial: GameConfig): GameHandle {
     [config.players, config.setupIndex],
   );
 
-  const rngRef = useRef(mulberry32(config.seed));
-  const stateRef = useRef<GameState>(newGame(variant, rngRef.current, config.setupIndex));
+  const gameStream = useRef<Stream>(makeStream(config.seed));
+  const ctxStreams = useRef<Stream[]>([]);
+  const stateRef = useRef<GameState>(newGame(variant, gameStream.current.fn, config.setupIndex));
   const logRef = useRef<LogEntry[]>([]);
   const agentsRef = useRef<(Agent | null)[]>(buildAgents(config));
   const ctxsRef = useRef<AgentCtx[]>([]);
+  const undoStack = useRef<Snapshot[]>([]);
   const [busy, setBusy] = useState(false);
   const timer = useRef<number | null>(null);
 
   const start = useCallback(
     (c: GameConfig) => {
       const v = makeVariant(c.players, c.setupIndex);
-      rngRef.current = mulberry32(c.seed);
-      stateRef.current = newGame(v, rngRef.current, c.setupIndex);
+      gameStream.current = makeStream(c.seed);
+      stateRef.current = newGame(v, gameStream.current.fn, c.setupIndex);
       logRef.current = [];
+      undoStack.current = [];
       agentsRef.current = buildAgents(c);
+      ctxStreams.current = c.seats.map((_, player) =>
+        makeStream((c.seed ^ (0x9e3779b9 * (player + 1))) >>> 0),
+      );
       ctxsRef.current = c.seats.map((_, player) => ({
         variant: v,
-        rng: mulberry32((c.seed ^ (0x9e3779b9 * (player + 1))) >>> 0),
+        rng: ctxStreams.current[player].fn,
         player,
       }));
       bump();
@@ -102,6 +151,24 @@ export function useGame(initial: GameConfig): GameHandle {
   }, []);
 
   /**
+   * Remember this moment as a rewind point. Called whenever the engine stops
+   * at a human decision (and at game over, so the last action can be taken
+   * back too). The guard makes the call idempotent — StrictMode runs effects
+   * twice in development, and one moment must not become two rewind points.
+   */
+  const pushUndo = useCallback(() => {
+    const top = undoStack.current[undoStack.current.length - 1];
+    if (top && top.draws === gameStream.current.n && top.log === logRef.current) return;
+    undoStack.current.push({
+      state: cloneState(stateRef.current),
+      draws: gameStream.current.n,
+      ctxDraws: ctxStreams.current.map((s) => s.n),
+      log: logRef.current,
+    });
+    if (undoStack.current.length > 100) undoStack.current.shift();
+  }, []);
+
+  /**
    * Advance until a human owes a decision or the game ends. Bot turns are
    * spaced out with a timer so the board can be watched.
    */
@@ -112,16 +179,18 @@ export function useGame(initial: GameConfig): GameHandle {
     for (let guard = 0; guard < 500; guard++) {
       const node = getPending(s, v);
       if (node.kind === 'over') {
+        pushUndo();
         setBusy(false);
         bump();
         return;
       }
       if (node.kind === 'chance') {
-        resolveChanceMut(s, v, rngRef.current);
+        resolveChanceMut(s, v, gameStream.current.fn);
         continue;
       }
       const agent = agentsRef.current[node.player];
       if (!agent) {
+        pushUndo();
         setBusy(false);
         bump();
         return;
@@ -130,9 +199,10 @@ export function useGame(initial: GameConfig): GameHandle {
       setBusy(true);
       bump();
       timer.current = window.setTimeout(() => {
+        timer.current = null;
         const ctx = ctxsRef.current[node.player] ?? {
           variant: v,
-          rng: rngRef.current,
+          rng: gameStream.current.fn,
           player: node.player,
         };
         const action = agent.choose(observe(s, v, node.player), node.actions, ctx);
@@ -144,7 +214,7 @@ export function useGame(initial: GameConfig): GameHandle {
     }
     setBusy(false);
     bump();
-  }, [bump, config.botDelay, config.players, config.setupIndex, record]);
+  }, [bump, config.botDelay, config.players, config.setupIndex, pushUndo, record]);
 
   useEffect(() => {
     advance();
@@ -173,6 +243,27 @@ export function useGame(initial: GameConfig): GameHandle {
     [advance, config.players, config.setupIndex, record],
   );
 
+  /**
+   * Rewind to the previous rewind point. The stack top is always *this*
+   * moment (it was pushed when the engine stopped here), so undo discards it
+   * and restores the one before — the human's previous decision, with any bot
+   * turns in between unwound along with it. The stored copy is cloned on the
+   * way out so repeated undo keeps working, and every RNG stream is replayed
+   * to its recorded position so the rewound game re-draws the same dice and
+   * deals the player already saw.
+   */
+  const undo = useCallback(() => {
+    if (timer.current !== null || undoStack.current.length < 2) return;
+    undoStack.current.pop();
+    const snap = undoStack.current[undoStack.current.length - 1];
+    stateRef.current = cloneState(snap.state);
+    logRef.current = snap.log;
+    gameStream.current.restore(snap.draws);
+    ctxStreams.current.forEach((stream, i) => stream.restore(snap.ctxDraws[i] ?? 0));
+    setBusy(false);
+    bump();
+  }, [bump]);
+
   const reset = useCallback(
     (patch?: Partial<GameConfig>) => {
       if (timer.current !== null) window.clearTimeout(timer.current);
@@ -190,6 +281,8 @@ export function useGame(initial: GameConfig): GameHandle {
     humanSeats,
     log: logRef.current,
     play,
+    undo,
+    canUndo: undoStack.current.length >= 2 && timer.current === null,
     reset,
     config,
   };

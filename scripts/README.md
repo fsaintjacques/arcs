@@ -10,3 +10,6 @@
   the dev server: `npx tsx scripts/board-preview.mjs out.png`. Reaches states
   that are rare in play — the file currently damages ships on every planet, to
   check fresh and damaged read differently.
+- `undo-check.mjs` / `pip-check.mjs` — drive the play tab with a bot-vs-human
+  game: the first takes an action, undoes it and checks the state rewinds
+  exactly; the second clicks until a spent pip renders as a filled circle.
