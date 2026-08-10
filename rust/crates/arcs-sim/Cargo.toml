@@ -1,0 +1,21 @@
+[package]
+name = "arcs-sim"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "The paired measurement harness for Arcs: runner, block statistics and the strength gauntlet"
+
+# `rayon` is the one ecosystem dependency the plan grants this crate. The
+# engine and the agents stay zero-dep: nothing about the rules or a bot's
+# thinking may depend on how a batch is scheduled.
+[dependencies]
+arcs-agents = { path = "../arcs-agents" }
+arcs-engine = { path = "../arcs-engine" }
+rayon = "1"
+
+[dev-dependencies]
+serde_json = "1"
+
+[lints]
+workspace = true
