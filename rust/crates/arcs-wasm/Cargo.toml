@@ -1,0 +1,28 @@
+[package]
+name = "arcs-wasm"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "Browser bindings for the Arcs engine: one Session, JSON in and out"
+
+# The wasm leaf. `wasm-bindgen` and `serde_json` live here and nowhere else —
+# `arcs-engine` and `arcs-agents` keep their zero-runtime-dep rule.
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+arcs-engine = { path = "../arcs-engine", features = ["serde"] }
+arcs-agents = { path = "../arcs-agents", features = ["serde"] }
+console_error_panic_hook = "0.1"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+wasm-bindgen = "0.2"
+
+[lints]
+workspace = true
+
+[package.metadata.wasm-pack.profile.release]
+# Optimise the shipped module for size; the search agents are still fast
+# enough for interactive play at a 600 ms budget.
+wasm-opt = ['-Os']

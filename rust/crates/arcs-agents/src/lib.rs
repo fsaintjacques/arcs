@@ -45,7 +45,7 @@ pub use eval::{
 };
 pub use greedy::{BattleValuation, Greedy, GreedyOpts};
 pub use mcts::{Mcts, MctsOpts};
-pub use mcts2::{Mcts2, Mcts2Opts};
+pub use mcts2::{Clock, Mcts2, Mcts2Opts};
 pub use montecarlo::{MonteCarlo, MonteCarloOpts};
 pub use nn::{FEATURE_SIZE, Mlp, MlpShape, extract_features};
 pub use random::{Random, RandomPlus};
@@ -77,6 +77,10 @@ pub struct AgentOpts {
     /// one, and an opts bag that could silently remove it would turn an
     /// interactive agent into an unbounded one.
     pub time_ms: Option<u64>,
+    /// Where a wall-clock budget reads the time. Set by hosts without
+    /// `std::time` — the browser binding passes `Date.now()`; see
+    /// [`mcts2::Clock`].
+    pub clock: Option<mcts2::Clock>,
     /// PUCT exploration constant (`mcts2`).
     pub c_puct: Option<f64>,
     /// UCT exploration constant (`mcts`).
@@ -129,6 +133,7 @@ impl AgentOpts {
         Mcts2Opts {
             iterations: self.iterations.unwrap_or(base.iterations),
             time_ms: self.time_ms.or(base.time_ms),
+            clock: self.clock.or(base.clock),
             c_puct: self.c_puct.unwrap_or(base.c_puct),
             max_actions: self.max_actions.unwrap_or(base.max_actions),
             worlds: self.worlds.unwrap_or(base.worlds),

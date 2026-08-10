@@ -40,6 +40,7 @@ pub const HIDDEN_CARD: ActionCardId = ActionCardId(u8::MAX);
 
 /// A legal view of the game for one player.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Observation {
     /// The observer.
     pub player: Player,
