@@ -34,8 +34,6 @@
 //! The ablation switches (`priors`, `rollout_leaf`, `worlds: 0`) exist so the
 //! gauntlet can price each idea separately.
 
-use std::time::Instant;
-
 use arcs_engine::game::{apply_action_mut, apply_battle_roll_mut, get_pending, resolve_chance_mut};
 use arcs_engine::{
     Action, GameState, MAX_SEATS, Observation, Pending, Phase, Player, SplitMix64, VariantDef,
@@ -59,12 +57,57 @@ const LEAF_ROLLOUT_DEPTH: usize = 30;
 /// needs to be honoured to within one batch.
 const DEADLINE_EVERY: usize = 8;
 
+/// A monotonic millisecond clock, supplied by the host.
+///
+/// The wall-clock budget needs a clock, and `wasm32-unknown-unknown` has no
+/// `std::time` — `Instant::now()` panics there. Rather than let the browser
+/// binding lose the interactive agent (or drag a platform crate into this
+/// zero-dependency crate), the clock is a plain function pointer the host
+/// hands over: `arcs-wasm` passes one backed by `Date.now()`.
+///
+/// Two configurations that differ only in *where* they read the time are the
+/// same configuration, so equality ignores the pointer — which is also the
+/// only meaningful answer, since function addresses are not unique.
+#[derive(Clone, Copy, Debug)]
+pub struct Clock(pub fn() -> u64);
+
+impl Clock {
+    #[inline]
+    pub fn now_ms(self) -> u64 {
+        (self.0)()
+    }
+}
+
+impl PartialEq for Clock {
+    fn eq(&self, _: &Self) -> bool {
+        true
+    }
+}
+
+/// The clock to use when the host supplies none. `None` on wasm means "no
+/// clock at all", and a search with no clock is governed by its iteration cap.
+#[cfg(not(target_family = "wasm"))]
+pub const DEFAULT_CLOCK: Option<Clock> = Some(Clock(std_now_ms));
+#[cfg(target_family = "wasm")]
+pub const DEFAULT_CLOCK: Option<Clock> = None;
+
+#[cfg(not(target_family = "wasm"))]
+fn std_now_ms() -> u64 {
+    use std::sync::OnceLock;
+    use std::time::Instant;
+    static ORIGIN: OnceLock<Instant> = OnceLock::new();
+    ORIGIN.get_or_init(Instant::now).elapsed().as_millis() as u64
+}
+
 #[derive(Clone, Copy, PartialEq, Debug)]
 pub struct Mcts2Opts {
     /// Iteration cap per decision.
     pub iterations: usize,
     /// Wall-clock budget in ms; whichever of the two limits hits first.
     pub time_ms: Option<u64>,
+    /// Where the wall clock comes from. `None` takes [`DEFAULT_CLOCK`], which
+    /// is `std::time` everywhere it exists and nothing on wasm.
+    pub clock: Option<Clock>,
     /// PUCT exploration constant.
     pub c_puct: f64,
     /// Cap on candidates per node (see [`generate_candidates`]).
@@ -89,6 +132,7 @@ impl Default for Mcts2Opts {
         Mcts2Opts {
             iterations: 400,
             time_ms: None,
+            clock: None,
             c_puct: 1.5,
             max_actions: 16,
             worlds: 16,
@@ -110,6 +154,7 @@ impl Mcts2Opts {
         Mcts2Opts {
             iterations: config.iterations,
             time_ms: None,
+            clock: None,
             c_puct: config.c_puct,
             max_actions: config.max_actions,
             worlds: config.worlds,
@@ -402,13 +447,18 @@ impl Agent for Mcts2 {
             self.pool
                 .push(determinize(obs, v, &mut rng, Default::default()));
         }
-        let start = Instant::now();
-        let budget = self.opts.time_ms.map(core::time::Duration::from_millis);
+        // A budget without a clock (wasm, unless the host supplies one) leaves
+        // the iteration cap as the only limit.
+        let clock = self.opts.clock.or(DEFAULT_CLOCK);
+        let deadline = match (self.opts.time_ms, clock) {
+            (Some(ms), Some(now)) => Some((now, now.now_ms().saturating_add(ms))),
+            _ => None,
+        };
 
         for iter in 0..self.opts.iterations {
             if iter > 0
                 && iter % DEADLINE_EVERY == 0
-                && budget.is_some_and(|b| start.elapsed() >= b)
+                && deadline.is_some_and(|(now, d)| now.now_ms() >= d)
             {
                 break;
             }
