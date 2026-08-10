@@ -124,6 +124,27 @@ function humansOf(config: GameConfig): number[] {
   return config.seats.slice(0, config.players).flatMap((name, i) => (name ? [] : [i]));
 }
 
+/**
+ * The log line for one action. A Copy and the card burned to seize go down
+ * face down and are never turned back up, so naming them would hand the reader
+ * what the table cannot see. `known` is true when the acting seat's hidden
+ * information is the reader's to see.
+ */
+export function describeForLog(
+  a: Action,
+  s: GameState,
+  v: VariantDef,
+  known: boolean,
+): string {
+  if (!known) {
+    if (a.t === 'seize') return 'Seize the initiative, burning a card face down';
+    if (a.t === 'follow' && a.mode === 'copy') {
+      return 'Copy face down — 1 action of the lead card';
+    }
+  }
+  return describeAction(a, s, v);
+}
+
 export function useGame(initial: GameConfig): GameHandle {
   const [config, setConfig] = useState(initial);
   const [, forceRender] = useState(0);
@@ -244,7 +265,15 @@ export function useGame(initial: GameConfig): GameHandle {
         timer.current = null;
         const index = session.botChoose();
         const action = actionsRef.current[index];
-        record(node.player, describeAction(action, stateRef.current!, variantRef.current!));
+        record(
+          node.player,
+          describeForLog(
+            action,
+            stateRef.current!,
+            variantRef.current!,
+            humans.includes(node.player),
+          ),
+        );
         const before = markInfo(stateRef.current!, humans);
         session.apply(index);
         stepRef.current++;
@@ -286,7 +315,10 @@ export function useGame(initial: GameConfig): GameHandle {
       const node = pending(current);
       if (index < 0 || node.kind !== 'decision') return;
       const humans = humansOf(config);
-      record(node.player, describeAction(a, stateRef.current!, variantRef.current!));
+      record(
+        node.player,
+        describeForLog(a, stateRef.current!, variantRef.current!, humans.includes(node.player)),
+      );
       const before = markInfo(stateRef.current!, humans);
       current.apply(index);
       stepRef.current++;
