@@ -316,6 +316,15 @@ pub struct VariantDef {
     pub power_threshold: u8,
     pub max_chapters: u8,
     pub hand_size: u8,
+    /// Model p17's "when you gain a resource you may rearrange slots" as a
+    /// decision instead of filling the leftmost open slot.
+    ///
+    /// Off by default: it adds an [`crate::Action::PlaceResource`] variant the
+    /// TS engine has no counterpart for, so a run that must stay comparable to
+    /// the TS gauntlet ledger leaves it off. On, the holder chooses the
+    /// raid-cost tier each gained token sits in, which is the only thing the
+    /// slot index affects (`RAID_COSTS = [1,1,2,2,3,3]`).
+    pub choose_placement: bool,
 }
 
 /// Build a variant. `setup_index` seeds the opening — see [`draw_setup`].
@@ -335,6 +344,7 @@ pub fn make_variant(players: u8, setup_index: u64, mode: SetupMode) -> VariantDe
         power_threshold: power_threshold(players),
         max_chapters: MAX_CHAPTERS,
         hand_size: HAND_SIZE,
+        choose_placement: false,
     }
 }
 

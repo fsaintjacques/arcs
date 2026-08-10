@@ -2,11 +2,23 @@
 //! canonical string keys of `src/engine/encode.ts` — plus the decoder the TS
 //! side never needed.
 //!
-//! `Action` is `Copy + Eq + Hash` and small (asserted <= 24 bytes) so search
-//! trees can key nodes by the enum itself. Optional parameters use
-//! fixed-size `Option`s and bounded lists; where the TS encoding
-//! distinguishes an *absent* list from an *empty* one (Farseers' `cards`),
-//! the Rust type is `Option<InlineVec>` for the same reason.
+//! `Action` is `Copy + Eq + Hash` and small (asserted <= 16 bytes) so search
+//! trees can key nodes by the enum itself.
+//!
+//! Where the TS union carries a bag of optional properties whose meaning
+//! depends on which card is resolving — `vox`, `cardAction`, `cardPrelude` —
+//! the Rust action carries a **choice enum** instead, so an illegal
+//! combination of parameters is unrepresentable and every consumer gets an
+//! exhaustive `match`.
+//!
+//! The flat bag survives only as a projection — [`VoxParts`],
+//! [`CardActionParts`], [`PreludeParts`] — because three *encodings* want it
+//! and none of them is the type: the canonical key ([`Display`], byte-identical
+//! to `encodeAction`), the wasm JSON boundary, and the NN head targets.
+//! Flattening is a property of the wire formats, not of the action.
+
+use core::fmt::{self, Write as _};
+use core::str::FromStr;
 
 use crate::inline_vec::InlineVec;
 use crate::types::{
@@ -31,6 +43,10 @@ index_enum! {
 
 index_enum! {
     /// The named Guild-card actions (TS carries the printed name string).
+    ///
+    /// [`crate::court::NewAction`] stores this variant rather than the printed
+    /// string, so enumeration never parses a name; `printed` exists for the
+    /// wire format alone.
     pub enum CardActionName {
         Manufacture,
         Synthesize,
@@ -60,6 +76,12 @@ impl CardActionName {
     }
 }
 
+impl fmt::Display for CardActionName {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(self.printed())
+    }
+}
+
 /// Where a battle hit lands (the TS `assignHit` target union).
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
@@ -70,10 +92,212 @@ pub enum HitTarget {
     Building { building: u8 },
 }
 
+/// What a Guild card's `Prelude:` ability asks the player to name.
+///
+/// One variant per [`crate::court::PreludeAbility`] parameter shape — the
+/// abilities that ask nothing (`ShipInEveryGate`, `FillSlots`,
+/// `GainResources`, `SeizeInitiative`) share [`PreludeChoice::Bare`].
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug, Default)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+pub enum PreludeChoice {
+    /// The ability takes no parameter.
+    #[default]
+    Bare,
+    /// `PlaceShips`: the system to place them in.
+    System(SystemId),
+    /// `StealResource`, and the resource half of `StealAny`.
+    StealResource { target: Player, slot: u8 },
+    /// The Guild-card half of `StealAny` (Silver-Tongues).
+    StealCard { target: Player, card: CourtCardId },
+    /// `ConvertResource` (Relic Fence): the slot to give up.
+    ConvertResource { slot: u8 },
+    /// `AttachUnion`: the face-up played card to attach to.
+    Union { played: ActionCardId },
+    /// `RecycleHand` (Farseers): the hand cards to discard. An empty list
+    /// still recycles — it discards nothing and redraws Farseers itself.
+    Recycle { cards: CardList },
+}
+
+/// The TS-shaped optional-field view of a [`PreludeChoice`].
+///
+/// Three encodings need the flat form — the canonical key ([`Display`]), the
+/// wasm JSON boundary, and the NN head targets — so it is derived once, here,
+/// instead of being re-flattened at each of them. The choice enum is the type;
+/// this is the projection the wire formats agreed on.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub struct PreludeParts {
+    pub system: Option<SystemId>,
+    pub slot: Option<u8>,
+    pub target: Option<Player>,
+    pub take_card: Option<CourtCardId>,
+    pub played: Option<ActionCardId>,
+    pub cards: Option<CardList>,
+}
+
+impl PreludeChoice {
+    pub fn parts(self) -> PreludeParts {
+        let mut p = PreludeParts::default();
+        match self {
+            PreludeChoice::Bare => {}
+            PreludeChoice::System(s) => p.system = Some(s),
+            PreludeChoice::StealResource { target, slot } => {
+                p.target = Some(target);
+                p.slot = Some(slot);
+            }
+            PreludeChoice::StealCard { target, card } => {
+                p.target = Some(target);
+                p.take_card = Some(card);
+            }
+            PreludeChoice::ConvertResource { slot } => p.slot = Some(slot),
+            PreludeChoice::Union { played } => p.played = Some(played),
+            PreludeChoice::Recycle { cards } => p.cards = Some(cards),
+        }
+        p
+    }
+}
+
+/// A Guild card's new action and its parameters (p20).
+///
+/// The variant *is* the printed name, so a card action can no longer name one
+/// ability and carry another's parameters.
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+pub enum CardActionChoice {
+    /// Mining Interest: gain 1 Material.
+    Manufacture,
+    /// Shipping Interest: gain 1 Fuel.
+    Synthesize,
+    /// Prison Wardens: return Captives to gain one resource for each.
+    Pressgang { gain: ResourceList },
+    /// Prison Wardens: move `count` Captives to your Trophies.
+    Execute { count: u8 },
+    /// Court Enforcers: capture every Rival agent from a Court slot.
+    Abduct { slot: u8 },
+    /// Elder Broker: swap a resource with the owner of a city you control.
+    Trade {
+        system: SystemId,
+        building: u8,
+        /// Their slot, holding a resource of the city's planet type.
+        slot: u8,
+        /// Your slot, holding a type they do not have.
+        give_slot: u8,
+    },
+}
+
+impl CardActionChoice {
+    /// The printed name this choice takes, which is what its pip cost is
+    /// looked up by.
+    pub const fn name(self) -> CardActionName {
+        match self {
+            CardActionChoice::Manufacture => CardActionName::Manufacture,
+            CardActionChoice::Synthesize => CardActionName::Synthesize,
+            CardActionChoice::Pressgang { .. } => CardActionName::Pressgang,
+            CardActionChoice::Execute { .. } => CardActionName::Execute,
+            CardActionChoice::Abduct { .. } => CardActionName::Abduct,
+            CardActionChoice::Trade { .. } => CardActionName::Trade,
+        }
+    }
+}
+
+/// The TS-shaped optional-field view of a [`CardActionChoice`]. The printed
+/// name is not here — it is [`CardActionChoice::name`]. See [`PreludeParts`].
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub struct CardActionParts {
+    pub gain: Option<ResourceList>,
+    pub count: Option<u8>,
+    pub slot: Option<u8>,
+    pub system: Option<SystemId>,
+    pub building: Option<u8>,
+    pub give_slot: Option<u8>,
+}
+
+impl CardActionChoice {
+    pub fn parts(self) -> CardActionParts {
+        let mut p = CardActionParts::default();
+        match self {
+            CardActionChoice::Manufacture | CardActionChoice::Synthesize => {}
+            CardActionChoice::Pressgang { gain } => p.gain = Some(gain),
+            CardActionChoice::Execute { count } => p.count = Some(count),
+            CardActionChoice::Abduct { slot } => p.slot = Some(slot),
+            CardActionChoice::Trade {
+                system,
+                building,
+                slot,
+                give_slot,
+            } => {
+                p.system = Some(system);
+                p.building = Some(building);
+                p.slot = Some(slot);
+                p.give_slot = Some(give_slot);
+            }
+        }
+        p
+    }
+}
+
+/// What a Vox card's `When Secured` effect asks the securing player.
+///
+/// One variant per [`crate::court::VoxEffect`] that needs a decision; Call to
+/// Action (`DrawFromDiscardBottom`) resolves inline and never reaches here.
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+pub enum VoxChoice {
+    /// Mass Uprising: place 1 ship in each system of this cluster.
+    Cluster(u8),
+    /// Populist Demands: declare this ambition.
+    Declare(AmbitionId),
+    /// Outrage Spreads: every player provokes Outrage of this type.
+    Outrage(ResourceType),
+    /// Song of Freedom: return this city, and maybe seize the initiative.
+    ReturnCity {
+        system: SystemId,
+        building: u8,
+        seize: bool,
+    },
+    /// Guild Struggle: steal this Guild card from this Rival.
+    Steal { target: Player, card: CourtCardId },
+}
+
+/// The TS-shaped optional-field view of a [`VoxChoice`]. See [`PreludeParts`].
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub struct VoxParts {
+    pub cluster: Option<u8>,
+    pub ambition: Option<AmbitionId>,
+    pub resource: Option<ResourceType>,
+    pub system: Option<SystemId>,
+    pub building: Option<u8>,
+    pub seize: Option<bool>,
+    pub target: Option<Player>,
+    pub card: Option<CourtCardId>,
+}
+
+impl VoxChoice {
+    pub fn parts(self) -> VoxParts {
+        let mut p = VoxParts::default();
+        match self {
+            VoxChoice::Cluster(c) => p.cluster = Some(c),
+            VoxChoice::Declare(a) => p.ambition = Some(a),
+            VoxChoice::Outrage(r) => p.resource = Some(r),
+            VoxChoice::ReturnCity {
+                system,
+                building,
+                seize,
+            } => {
+                p.system = Some(system);
+                p.building = Some(building);
+                p.seize = Some(seize);
+            }
+            VoxChoice::Steal { target, card } => {
+                p.target = Some(target);
+                p.card = Some(card);
+            }
+        }
+        p
+    }
+}
+
 /// Every move a player can make, mirroring the TS `Action` union variant for
-/// variant (types.ts:392). Variants whose phases land in R2 (board actions,
-/// battle) and R3 (card powers, Vox, Farseers) are already here so the type
-/// never changes shape again.
+/// variant (types.ts:392).
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum Action {
@@ -107,19 +331,13 @@ pub enum Action {
         slot: u8,
         spend_as: ResourceType,
     },
-    /// Use a Guild card's `Prelude:` ability (R3). The optional fields are
-    /// the ability's parameters — see the TS doc comment.
+    /// Use a Guild card's `Prelude:` ability (p20).
     CardPrelude {
         card: CourtCardId,
-        system: Option<SystemId>,
-        slot: Option<u8>,
-        target: Option<Player>,
-        take_card: Option<CourtCardId>,
-        played: Option<ActionCardId>,
-        cards: Option<CardList>,
+        choice: PreludeChoice,
     },
     BeginActions,
-    // --- actions (R2) ---
+    // --- actions ---
     Tax {
         system: SystemId,
         building: u8,
@@ -133,16 +351,10 @@ pub enum Action {
         kind: BuildingKind,
     },
     /// A Guild card's new action, taken instead of the standard one it
-    /// replaces (R3).
+    /// replaces (p20).
     CardAction {
         card: CourtCardId,
-        name: CardActionName,
-        gain: Option<ResourceList>,
-        count: Option<u8>,
-        slot: Option<u8>,
-        system: Option<SystemId>,
-        building: Option<u8>,
-        give_slot: Option<u8>,
+        choice: CardActionChoice,
     },
     Move {
         from: SystemId,
@@ -172,7 +384,7 @@ pub enum Action {
         raid: u8,
     },
     EndTurn,
-    // --- battle assignment (R2) ---
+    // --- battle assignment ---
     /// Assign one self-hit to a Loyal ship in the battle system.
     AssignSelf {
         fresh: bool,
@@ -193,7 +405,7 @@ pub enum Action {
     RerollSkirmish {
         count: u8,
     },
-    // --- Farseers (R3) ---
+    // --- Farseers ---
     /// Choose whose hand to look at, or `None` to decline.
     PeekTarget {
         target: Option<Player>,
@@ -204,23 +416,19 @@ pub enum Action {
         take: ActionCardId,
     },
     PeekSwapSkip,
-    // --- Vox `When Secured` (R3) ---
-    /// Resolve the pending Vox card; which fields matter depends on the
-    /// card — see the TS doc comment.
-    Vox {
-        cluster: Option<u8>,
-        ambition: Option<AmbitionId>,
-        resource: Option<ResourceType>,
-        system: Option<SystemId>,
-        building: Option<u8>,
-        seize: Option<bool>,
-        target: Option<Player>,
-        card: Option<CourtCardId>,
-    },
+    // --- Vox `When Secured` ---
+    /// Resolve the pending Vox card.
+    Vox(VoxChoice),
     VoxSkip,
     // --- reinforce ---
     Reinforce {
         system: SystemId,
+    },
+    /// Place a just-gained resource in a free slot of raid-cost `tier`
+    /// (p17). Only offered when [`crate::VariantDef::choose_placement`] is on;
+    /// **no TS counterpart** — see the encoding note below.
+    PlaceResource {
+        tier: u8,
     },
 }
 
@@ -241,254 +449,219 @@ fn resource_name(r: ResourceType) -> &'static str {
     RESOURCE_NAMES[r.as_index()]
 }
 
-use core::fmt::Write as _;
-
-fn opt<T: Into<usize> + Copy>(out: &mut String, x: Option<T>) {
-    if let Some(x) = x {
-        let _ = write!(out, "{}", x.into());
+/// The TS `opt()`: `''` for absent.
+fn opt<W: fmt::Write, T: Into<usize> + Copy>(out: &mut W, x: Option<T>) -> fmt::Result {
+    match x {
+        Some(x) => write!(out, "{}", x.into()),
+        None => Ok(()),
     }
 }
 
 /// The TS `arr()`: `''` for absent, `[a.b.c]` for present.
-fn card_arr(out: &mut String, cards: Option<&CardList>) {
-    if let Some(cards) = cards {
-        out.push('[');
-        for (i, c) in cards.iter().enumerate() {
-            if i > 0 {
-                out.push('.');
-            }
-            let _ = write!(out, "{}", c.0);
+fn card_arr<W: fmt::Write>(out: &mut W, cards: Option<&CardList>) -> fmt::Result {
+    let Some(cards) = cards else { return Ok(()) };
+    out.write_char('[')?;
+    for (i, c) in cards.iter().enumerate() {
+        if i > 0 {
+            out.write_char('.')?;
         }
-        out.push(']');
+        write!(out, "{}", c.0)?;
     }
+    out.write_char(']')
 }
 
-fn resource_arr(out: &mut String, gain: Option<&ResourceList>) {
-    if let Some(gain) = gain {
-        out.push('[');
-        for (i, r) in gain.iter().enumerate() {
-            if i > 0 {
-                out.push('.');
-            }
-            out.push_str(resource_name(*r));
+fn resource_arr<W: fmt::Write>(out: &mut W, gain: Option<&ResourceList>) -> fmt::Result {
+    let Some(gain) = gain else { return Ok(()) };
+    out.write_char('[')?;
+    for (i, r) in gain.iter().enumerate() {
+        if i > 0 {
+            out.write_char('.')?;
         }
-        out.push(']');
+        out.write_str(resource_name(*r))?;
     }
+    out.write_char(']')
 }
 
 /// The canonical key of an action — stable, compact, injective. Matches the
 /// TS `encodeAction` byte for byte on every variant.
-pub fn encode_action(a: Action) -> String {
-    let mut s = String::with_capacity(24);
-    match a {
-        Action::Lead { card } => {
-            let _ = write!(s, "ld:{}", card.0);
-        }
-        Action::Follow { card, mode } => {
-            let m = match mode {
-                FollowMode::Surpass => 's',
-                FollowMode::Copy => 'c',
-                FollowMode::Pivot => 'p',
-            };
-            let _ = write!(s, "fo:{}:{m}", card.0);
-        }
-        Action::PassInitiative => s.push_str("pi"),
-        Action::Mulligan { take } => {
-            let _ = write!(s, "mu:{}", take as u8);
-        }
-        Action::DeclareAmbition { ambition } => {
-            let _ = write!(s, "da:{}", ambition_name(ambition));
-        }
-        Action::Seize { card } => {
-            let _ = write!(s, "sz:{}", card.0);
-        }
-        Action::SpendResource { slot } => {
-            let _ = write!(s, "sr:{slot}");
-        }
-        Action::SpendResourceAs { slot, spend_as } => {
-            let _ = write!(s, "sa:{slot}:{}", resource_name(spend_as));
-        }
-        Action::CardPrelude {
-            card,
-            system,
-            slot,
-            target,
-            take_card,
-            played,
-            cards,
-        } => {
-            let _ = write!(s, "cp:{}:", card.0);
-            opt(&mut s, system);
-            s.push(':');
-            opt(&mut s, slot.map(|x| x as usize));
-            s.push(':');
-            opt(&mut s, target);
-            s.push(':');
-            opt(&mut s, take_card);
-            s.push(':');
-            opt(&mut s, played);
-            s.push(':');
-            card_arr(&mut s, cards.as_ref());
-        }
-        Action::BeginActions => s.push_str("ba"),
-        Action::Tax { system, building } => {
-            let _ = write!(s, "tx:{}:{building}", system.0);
-        }
-        Action::BuildShip { system, building } => {
-            let _ = write!(s, "bs:{}:{building}", system.0);
-        }
-        Action::BuildBuilding { system, kind } => {
-            let k = match kind {
-                BuildingKind::City => 'c',
-                BuildingKind::Starport => 's',
-            };
-            let _ = write!(s, "bb:{}:{k}", system.0);
-        }
-        Action::CardAction {
-            card,
-            name,
-            gain,
-            count,
-            slot,
-            system,
-            building,
-            give_slot,
-        } => {
-            let _ = write!(s, "ca:{}:{}:", card.0, name.printed());
-            resource_arr(&mut s, gain.as_ref());
-            s.push(':');
-            opt(&mut s, count.map(|x| x as usize));
-            s.push(':');
-            opt(&mut s, slot.map(|x| x as usize));
-            s.push(':');
-            opt(&mut s, system);
-            s.push(':');
-            opt(&mut s, building.map(|x| x as usize));
-            s.push(':');
-            opt(&mut s, give_slot.map(|x| x as usize));
-        }
-        Action::Move { from, to, ships } => {
-            let _ = write!(s, "mv:{}:{}:{ships}", from.0, to.0);
-        }
-        Action::Catapult { to, ships } => {
-            let _ = write!(s, "ct:{}:{ships}", to.0);
-        }
-        Action::CatapultStop => s.push_str("cs"),
-        Action::Repair { system, building } => {
-            let _ = write!(s, "rp:{}:", system.0);
-            match building {
-                None => s.push('n'),
-                Some(b) => {
-                    let _ = write!(s, "{b}");
+///
+/// The three choice enums flatten back into TS's optional-field bags here, and
+/// only here: the wire format is the compatibility surface, the type is not.
+impl fmt::Display for Action {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match *self {
+            Action::Lead { card } => write!(f, "ld:{}", card.0),
+            Action::Follow { card, mode } => {
+                let m = match mode {
+                    FollowMode::Surpass => 's',
+                    FollowMode::Copy => 'c',
+                    FollowMode::Pivot => 'p',
+                };
+                write!(f, "fo:{}:{m}", card.0)
+            }
+            Action::PassInitiative => f.write_str("pi"),
+            Action::Mulligan { take } => write!(f, "mu:{}", take as u8),
+            Action::DeclareAmbition { ambition } => write!(f, "da:{}", ambition_name(ambition)),
+            Action::Seize { card } => write!(f, "sz:{}", card.0),
+            Action::SpendResource { slot } => write!(f, "sr:{slot}"),
+            Action::SpendResourceAs { slot, spend_as } => {
+                write!(f, "sa:{slot}:{}", resource_name(spend_as))
+            }
+            Action::CardPrelude { card, choice } => {
+                let p = choice.parts();
+                write!(f, "cp:{}:", card.0)?;
+                opt(f, p.system)?;
+                f.write_char(':')?;
+                opt(f, p.slot.map(usize::from))?;
+                f.write_char(':')?;
+                opt(f, p.target)?;
+                f.write_char(':')?;
+                opt(f, p.take_card)?;
+                f.write_char(':')?;
+                opt(f, p.played)?;
+                f.write_char(':')?;
+                card_arr(f, p.cards.as_ref())
+            }
+            Action::BeginActions => f.write_str("ba"),
+            Action::Tax { system, building } => write!(f, "tx:{}:{building}", system.0),
+            Action::BuildShip { system, building } => write!(f, "bs:{}:{building}", system.0),
+            Action::BuildBuilding { system, kind } => {
+                let k = match kind {
+                    BuildingKind::City => 'c',
+                    BuildingKind::Starport => 's',
+                };
+                write!(f, "bb:{}:{k}", system.0)
+            }
+            Action::CardAction { card, choice } => {
+                let p = choice.parts();
+                write!(f, "ca:{}:{}:", card.0, choice.name().printed())?;
+                resource_arr(f, p.gain.as_ref())?;
+                f.write_char(':')?;
+                opt(f, p.count.map(usize::from))?;
+                f.write_char(':')?;
+                opt(f, p.slot.map(usize::from))?;
+                f.write_char(':')?;
+                opt(f, p.system)?;
+                f.write_char(':')?;
+                opt(f, p.building.map(usize::from))?;
+                f.write_char(':')?;
+                opt(f, p.give_slot.map(usize::from))
+            }
+            Action::Move { from, to, ships } => write!(f, "mv:{}:{}:{ships}", from.0, to.0),
+            Action::Catapult { to, ships } => write!(f, "ct:{}:{ships}", to.0),
+            Action::CatapultStop => f.write_str("cs"),
+            Action::Repair { system, building } => {
+                write!(f, "rp:{}:", system.0)?;
+                match building {
+                    None => f.write_char('n'),
+                    Some(b) => write!(f, "{b}"),
                 }
             }
-        }
-        Action::Influence { slot } => {
-            let _ = write!(s, "in:{slot}");
-        }
-        Action::Secure { slot } => {
-            let _ = write!(s, "se:{slot}");
-        }
-        Action::Battle {
-            system,
-            defender,
-            assault,
-            skirmish,
-            raid,
-        } => {
-            let _ = write!(
-                s,
+            Action::Influence { slot } => write!(f, "in:{slot}"),
+            Action::Secure { slot } => write!(f, "se:{slot}"),
+            Action::Battle {
+                system,
+                defender,
+                assault,
+                skirmish,
+                raid,
+            } => write!(
+                f,
                 "bt:{}:{}:{assault}/{skirmish}/{raid}",
                 system.0, defender.0
-            );
-        }
-        Action::EndTurn => s.push_str("et"),
-        Action::AssignSelf { fresh } => {
-            let _ = write!(s, "as:{}", fresh as u8);
-        }
-        Action::AssignHit { target } => match target {
-            HitTarget::Ship { fresh } => {
-                let _ = write!(s, "ah:s:{}", fresh as u8);
-            }
-            HitTarget::Building { building } => {
-                let _ = write!(s, "ah:b:{building}");
-            }
-        },
-        Action::RaidResource { slot } => {
-            let _ = write!(s, "rr:{slot}");
-        }
-        Action::RaidCard { card } => {
-            let _ = write!(s, "rc:{}", card.0);
-        }
-        Action::RaidDone => s.push_str("rd"),
-        Action::RerollSkirmish { count } => {
-            let _ = write!(s, "rs:{count}");
-        }
-        Action::PeekTarget { target } => {
-            s.push_str("pt:");
-            match target {
-                None => s.push('n'),
-                Some(p) => {
-                    let _ = write!(s, "{}", p.0);
+            ),
+            Action::EndTurn => f.write_str("et"),
+            Action::AssignSelf { fresh } => write!(f, "as:{}", fresh as u8),
+            Action::AssignHit { target } => match target {
+                HitTarget::Ship { fresh } => write!(f, "ah:s:{}", fresh as u8),
+                HitTarget::Building { building } => write!(f, "ah:b:{building}"),
+            },
+            Action::RaidResource { slot } => write!(f, "rr:{slot}"),
+            Action::RaidCard { card } => write!(f, "rc:{}", card.0),
+            Action::RaidDone => f.write_str("rd"),
+            Action::RerollSkirmish { count } => write!(f, "rs:{count}"),
+            Action::PeekTarget { target } => {
+                f.write_str("pt:")?;
+                match target {
+                    None => f.write_char('n'),
+                    Some(p) => write!(f, "{}", p.0),
                 }
             }
-        }
-        Action::PeekSwap { give, take } => {
-            let _ = write!(s, "ps:{}:{}", give.0, take.0);
-        }
-        Action::PeekSwapSkip => s.push_str("pk"),
-        Action::Vox {
-            cluster,
-            ambition,
-            resource,
-            system,
-            building,
-            seize,
-            target,
-            card,
-        } => {
-            s.push_str("vx:");
-            opt(&mut s, cluster.map(|x| x as usize));
-            s.push(':');
-            if let Some(a) = ambition {
-                s.push_str(ambition_name(a));
+            Action::PeekSwap { give, take } => write!(f, "ps:{}:{}", give.0, take.0),
+            Action::PeekSwapSkip => f.write_str("pk"),
+            Action::Vox(choice) => {
+                let p = choice.parts();
+                f.write_str("vx:")?;
+                opt(f, p.cluster.map(usize::from))?;
+                f.write_char(':')?;
+                if let Some(a) = p.ambition {
+                    f.write_str(ambition_name(a))?;
+                }
+                f.write_char(':')?;
+                if let Some(r) = p.resource {
+                    f.write_str(resource_name(r))?;
+                }
+                f.write_char(':')?;
+                opt(f, p.system)?;
+                f.write_char(':')?;
+                opt(f, p.building.map(usize::from))?;
+                f.write_char(':')?;
+                if let Some(sz) = p.seize {
+                    write!(f, "{}", sz as u8)?;
+                }
+                f.write_char(':')?;
+                opt(f, p.target)?;
+                f.write_char(':')?;
+                opt(f, p.card)
             }
-            s.push(':');
-            if let Some(r) = resource {
-                s.push_str(resource_name(r));
-            }
-            s.push(':');
-            opt(&mut s, system);
-            s.push(':');
-            opt(&mut s, building.map(|x| x as usize));
-            s.push(':');
-            if let Some(sz) = seize {
-                let _ = write!(s, "{}", sz as u8);
-            }
-            s.push(':');
-            opt(&mut s, target);
-            s.push(':');
-            opt(&mut s, card);
-        }
-        Action::VoxSkip => s.push_str("vs"),
-        Action::Reinforce { system } => {
-            let _ = write!(s, "rf:{}", system.0);
+            Action::VoxSkip => f.write_str("vs"),
+            Action::Reinforce { system } => write!(f, "rf:{}", system.0),
+            // `pr` is a Rust-only tag: the TS engine has no placement action,
+            // so this key can never appear in a trace exported from TS.
+            Action::PlaceResource { tier } => write!(f, "pr:{tier}"),
         }
     }
+}
+
+/// The canonical key of an action. (`encodeAction` in encode.ts; the same
+/// thing as `action.to_string()`, kept under the TS name.)
+pub fn encode_action(a: Action) -> String {
+    let mut s = String::with_capacity(24);
+    let _ = write!(s, "{a}");
     s
 }
 
 // --- decoding ---------------------------------------------------------------
 
+/// A canonical key that names no action.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct ParseActionError;
+
+impl fmt::Display for ParseActionError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str("not a canonical action key")
+    }
+}
+
+impl core::error::Error for ParseActionError {}
+
+impl FromStr for Action {
+    type Err = ParseActionError;
+
+    fn from_str(key: &str) -> Result<Self, Self::Err> {
+        decode_action(key).ok_or(ParseActionError)
+    }
+}
+
 fn parse_u8(s: &str) -> Option<u8> {
     s.parse().ok()
 }
 
-fn parse_opt_u8(s: &str) -> Option<Option<u8>> {
-    if s.is_empty() {
-        Some(None)
-    } else {
-        parse_u8(s).map(Some)
+fn parse_bool(s: &str) -> Option<bool> {
+    match s {
+        "0" => Some(false),
+        "1" => Some(true),
+        _ => None,
     }
 }
 
@@ -542,8 +715,8 @@ fn fields<const N: usize>(s: &str) -> Option<[&str; N]> {
 }
 
 /// Decode a canonical key back into the action it names. Total inverse of
-/// [`encode_action`]: `decode_action(&encode_action(a)) == Some(a)` for every
-/// well-formed action.
+/// [`Display`]: `key.parse::<Action>()` round-trips every well-formed action.
+/// (Also reachable as `Action::from_str`; this is the TS-named form.)
 pub fn decode_action(key: &str) -> Option<Action> {
     let (tag, rest) = match key.split_once(':') {
         Some((tag, rest)) => (tag, rest),
@@ -567,11 +740,9 @@ pub fn decode_action(key: &str) -> Option<Action> {
             })
         }
         "pi" if rest.is_empty() => Some(Action::PassInitiative),
-        "mu" => match rest {
-            "0" => Some(Action::Mulligan { take: false }),
-            "1" => Some(Action::Mulligan { take: true }),
-            _ => None,
-        },
+        "mu" => Some(Action::Mulligan {
+            take: parse_bool(rest)?,
+        }),
         "da" => Some(Action::DeclareAmbition {
             ambition: parse_ambition(rest)?,
         }),
@@ -590,14 +761,38 @@ pub fn decode_action(key: &str) -> Option<Action> {
         }
         "cp" => {
             let [card, system, slot, target, take_card, played, cards] = fields::<7>(rest)?;
+            // Which fields are populated names the choice. Order matters:
+            // StealCard sets `target` too, and Recycle is the only shape that
+            // can legitimately carry an empty payload.
+            let recycle = parse_arr(cards, |c| parse_u8(c).map(ActionCardId))?;
+            let choice = if let Some(cards) = recycle {
+                PreludeChoice::Recycle { cards }
+            } else if !system.is_empty() {
+                PreludeChoice::System(SystemId(parse_u8(system)?))
+            } else if !played.is_empty() {
+                PreludeChoice::Union {
+                    played: ActionCardId(parse_u8(played)?),
+                }
+            } else if !take_card.is_empty() {
+                PreludeChoice::StealCard {
+                    target: Player(parse_u8(target)?),
+                    card: CourtCardId(parse_u8(take_card)?),
+                }
+            } else if !target.is_empty() {
+                PreludeChoice::StealResource {
+                    target: Player(parse_u8(target)?),
+                    slot: parse_u8(slot)?,
+                }
+            } else if !slot.is_empty() {
+                PreludeChoice::ConvertResource {
+                    slot: parse_u8(slot)?,
+                }
+            } else {
+                PreludeChoice::Bare
+            };
             Some(Action::CardPrelude {
                 card: CourtCardId(parse_u8(card)?),
-                system: parse_opt_u8(system)?.map(SystemId),
-                slot: parse_opt_u8(slot)?,
-                target: parse_opt_u8(target)?.map(Player),
-                take_card: parse_opt_u8(take_card)?.map(CourtCardId),
-                played: parse_opt_u8(played)?.map(ActionCardId),
-                cards: parse_arr(cards, |c| parse_u8(c).map(ActionCardId))?,
+                choice,
             })
         }
         "ba" if rest.is_empty() => Some(Action::BeginActions),
@@ -629,15 +824,30 @@ pub fn decode_action(key: &str) -> Option<Action> {
         }
         "ca" => {
             let [card, name, gain, count, slot, system, building, give_slot] = fields::<8>(rest)?;
+            // The printed name selects the variant; each then claims exactly
+            // the fields it owns and requires them to be present.
+            let choice = match CardActionName::from_printed(name)? {
+                CardActionName::Manufacture => CardActionChoice::Manufacture,
+                CardActionName::Synthesize => CardActionChoice::Synthesize,
+                CardActionName::Pressgang => CardActionChoice::Pressgang {
+                    gain: parse_arr(gain, parse_resource)??,
+                },
+                CardActionName::Execute => CardActionChoice::Execute {
+                    count: parse_u8(count)?,
+                },
+                CardActionName::Abduct => CardActionChoice::Abduct {
+                    slot: parse_u8(slot)?,
+                },
+                CardActionName::Trade => CardActionChoice::Trade {
+                    system: SystemId(parse_u8(system)?),
+                    building: parse_u8(building)?,
+                    slot: parse_u8(slot)?,
+                    give_slot: parse_u8(give_slot)?,
+                },
+            };
             Some(Action::CardAction {
                 card: CourtCardId(parse_u8(card)?),
-                name: CardActionName::from_printed(name)?,
-                gain: parse_arr(gain, parse_resource)?,
-                count: parse_opt_u8(count)?,
-                slot: parse_opt_u8(slot)?,
-                system: parse_opt_u8(system)?.map(SystemId),
-                building: parse_opt_u8(building)?,
-                give_slot: parse_opt_u8(give_slot)?,
+                choice,
             })
         }
         "mv" => {
@@ -692,20 +902,14 @@ pub fn decode_action(key: &str) -> Option<Action> {
             })
         }
         "et" if rest.is_empty() => Some(Action::EndTurn),
-        "as" => match rest {
-            "0" => Some(Action::AssignSelf { fresh: false }),
-            "1" => Some(Action::AssignSelf { fresh: true }),
-            _ => None,
-        },
+        "as" => Some(Action::AssignSelf {
+            fresh: parse_bool(rest)?,
+        }),
         "ah" => {
             let [kind, arg] = fields::<2>(rest)?;
             let target = match kind {
                 "s" => HitTarget::Ship {
-                    fresh: match arg {
-                        "0" => false,
-                        "1" => true,
-                        _ => return None,
-                    },
+                    fresh: parse_bool(arg)?,
                 },
                 "b" => HitTarget::Building {
                     building: parse_u8(arg)?,
@@ -751,36 +955,36 @@ pub fn decode_action(key: &str) -> Option<Action> {
                 target,
                 card,
             ] = fields::<8>(rest)?;
-            let seize = match seize {
-                "" => None,
-                "0" => Some(false),
-                "1" => Some(true),
-                _ => return None,
-            };
-            let ambition = if ambition.is_empty() {
-                None
+            // As with `cp`, the populated fields name the choice. An all-empty
+            // bag names nothing — `vs` (VoxSkip) is how a player declines.
+            let choice = if !cluster.is_empty() {
+                VoxChoice::Cluster(parse_u8(cluster)?)
+            } else if !ambition.is_empty() {
+                VoxChoice::Declare(parse_ambition(ambition)?)
+            } else if !resource.is_empty() {
+                VoxChoice::Outrage(parse_resource(resource)?)
+            } else if !system.is_empty() {
+                VoxChoice::ReturnCity {
+                    system: SystemId(parse_u8(system)?),
+                    building: parse_u8(building)?,
+                    seize: parse_bool(seize)?,
+                }
+            } else if !target.is_empty() {
+                VoxChoice::Steal {
+                    target: Player(parse_u8(target)?),
+                    card: CourtCardId(parse_u8(card)?),
+                }
             } else {
-                Some(parse_ambition(ambition)?)
+                return None;
             };
-            let resource = if resource.is_empty() {
-                None
-            } else {
-                Some(parse_resource(resource)?)
-            };
-            Some(Action::Vox {
-                cluster: parse_opt_u8(cluster)?,
-                ambition,
-                resource,
-                system: parse_opt_u8(system)?.map(SystemId),
-                building: parse_opt_u8(building)?,
-                seize,
-                target: parse_opt_u8(target)?.map(Player),
-                card: parse_opt_u8(card)?.map(CourtCardId),
-            })
+            Some(Action::Vox(choice))
         }
         "vs" if rest.is_empty() => Some(Action::VoxSkip),
         "rf" => Some(Action::Reinforce {
             system: SystemId(parse_u8(rest)?),
+        }),
+        "pr" => Some(Action::PlaceResource {
+            tier: parse_u8(rest)?,
         }),
         _ => None,
     }
@@ -792,11 +996,11 @@ mod tests {
 
     #[test]
     fn action_is_small() {
-        // The plan targets <= 16 bytes; the multi-parameter variants
-        // (`CardPrelude` with its 5 options + bounded card list) land at
-        // 21 bytes without contortions. Assert the achieved bound.
+        // The plan's target. Nesting the parameter bags into choice enums —
+        // the widest was `Vox`'s eight `Option`s at 13 bytes of payload —
+        // brought this back under the original budget from 24.
         assert!(
-            size_of::<Action>() <= 24,
+            size_of::<Action>() <= 16,
             "Action is {} bytes",
             size_of::<Action>()
         );
@@ -808,21 +1012,13 @@ mod tests {
     fn distinguishes_absent_from_empty_and_null_from_zero() {
         let bare = Action::CardPrelude {
             card: CourtCardId(16),
-            system: None,
-            slot: None,
-            target: None,
-            take_card: None,
-            played: None,
-            cards: None,
+            choice: PreludeChoice::Bare,
         };
         let empty = Action::CardPrelude {
             card: CourtCardId(16),
-            system: None,
-            slot: None,
-            target: None,
-            take_card: None,
-            played: None,
-            cards: Some(CardList::new()),
+            choice: PreludeChoice::Recycle {
+                cards: CardList::new(),
+            },
         };
         assert_ne!(encode_action(bare), encode_action(empty));
 
@@ -895,12 +1091,9 @@ mod tests {
         assert_eq!(
             encode_action(Action::CardPrelude {
                 card: CourtCardId(16),
-                system: None,
-                slot: None,
-                target: None,
-                take_card: None,
-                played: None,
-                cards: Some(CardList::from_slice(&[ActionCardId(1), ActionCardId(4)])),
+                choice: PreludeChoice::Recycle {
+                    cards: CardList::from_slice(&[ActionCardId(1), ActionCardId(4)]),
+                },
             }),
             "cp:16::::::[1.4]"
         );
@@ -911,5 +1104,100 @@ mod tests {
             }),
             "rp:3:n"
         );
+    }
+
+    /// The choice enums must not disturb the wire format: every shape still
+    /// lands in the field slot `encode.ts` puts it in.
+    ///
+    /// Every expected key here was produced by running the TS `encodeAction`
+    /// on the equivalent object literal, not derived from this file — they are
+    /// the parity contract, so they are transcribed rather than computed.
+    #[test]
+    fn choice_enums_flatten_to_the_ts_field_bags() {
+        for (action, key) in [
+            (Action::Vox(VoxChoice::Cluster(3)), "vx:3:::::::"),
+            (
+                Action::Vox(VoxChoice::Declare(AmbitionId::Keeper)),
+                "vx::keeper::::::",
+            ),
+            (
+                Action::Vox(VoxChoice::Outrage(ResourceType::Psionic)),
+                "vx:::psionic:::::",
+            ),
+            (
+                Action::Vox(VoxChoice::ReturnCity {
+                    system: SystemId(9),
+                    building: 1,
+                    seize: true,
+                }),
+                "vx::::9:1:1::",
+            ),
+            (
+                Action::Vox(VoxChoice::Steal {
+                    target: Player(2),
+                    card: CourtCardId(7),
+                }),
+                "vx:::::::2:7",
+            ),
+            (
+                Action::CardAction {
+                    card: CourtCardId(11),
+                    choice: CardActionChoice::Pressgang {
+                        gain: ResourceList::from_slice(&[
+                            ResourceType::Material,
+                            ResourceType::Relic,
+                        ]),
+                    },
+                },
+                "ca:11:Pressgang:[material.relic]:::::",
+            ),
+            (
+                Action::CardAction {
+                    card: CourtCardId(11),
+                    choice: CardActionChoice::Execute { count: 2 },
+                },
+                "ca:11:Execute::2::::",
+            ),
+            (
+                Action::CardAction {
+                    card: CourtCardId(22),
+                    choice: CardActionChoice::Trade {
+                        system: SystemId(5),
+                        building: 0,
+                        slot: 1,
+                        give_slot: 2,
+                    },
+                },
+                "ca:22:Trade:::1:5:0:2",
+            ),
+            (
+                Action::CardPrelude {
+                    card: CourtCardId(14),
+                    choice: PreludeChoice::System(SystemId(6)),
+                },
+                "cp:14:6:::::",
+            ),
+            (
+                Action::CardPrelude {
+                    card: CourtCardId(19),
+                    choice: PreludeChoice::StealCard {
+                        target: Player(1),
+                        card: CourtCardId(3),
+                    },
+                },
+                "cp:19:::1:3::",
+            ),
+        ] {
+            assert_eq!(encode_action(action), key);
+            assert_eq!(key.parse::<Action>(), Ok(action), "round trip of {key}");
+        }
+    }
+
+    #[test]
+    fn from_str_rejects_a_bag_that_names_no_choice() {
+        // The all-empty Vox bag was representable before the choice enum;
+        // declining is `vs`.
+        assert_eq!("vx:::::::".parse::<Action>(), Err(ParseActionError));
+        assert_eq!("vs".parse::<Action>(), Ok(Action::VoxSkip));
     }
 }

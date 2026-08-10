@@ -33,17 +33,18 @@ impl ActionCardDef {
     pub const fn ambition(&self) -> CardAmbition {
         ambition_by_number(self.number)
     }
+}
 
-    /// A short name like "A3" (suit initial + number), as in the TS
-    /// `cardName`.
-    pub fn name(&self) -> String {
+/// A short name like "A3" (suit initial + number), as in the TS `cardName`.
+impl core::fmt::Display for ActionCardDef {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         let initial = match self.suit {
             Suit::Administration => 'A',
             Suit::Aggression => 'A',
             Suit::Construction => 'C',
             Suit::Mobilization => 'M',
         };
-        format!("{initial}{}", self.number)
+        write!(f, "{initial}{}", self.number)
     }
 }
 

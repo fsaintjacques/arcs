@@ -21,7 +21,9 @@
 use arcs_engine::cards::action_card;
 use arcs_engine::map::{SYSTEM_COUNT, SystemKind};
 use arcs_engine::state::MAX_SEATS;
-use arcs_engine::{Action, GameState, Player, SystemId, VariantDef};
+use arcs_engine::{
+    Action, CardActionChoice, GameState, Player, PreludeChoice, SystemId, VariantDef,
+};
 
 use crate::dicemath::expected_battle;
 use crate::eval::Weights;
@@ -256,7 +258,8 @@ fn order_kind(list: &mut [Action], s: &GameState, v: &VariantDef, player: Player
         Some(Action::CardPrelude { .. }) => {
             ranked(list, |a| match a {
                 Action::CardPrelude {
-                    cards: Some(cards), ..
+                    choice: PreludeChoice::Recycle { cards },
+                    ..
                 } => {
                     // Farseers' recycle: prefer swapping many low-pip cards.
                     let mut score = 0.0f64;
@@ -271,7 +274,8 @@ fn order_kind(list: &mut [Action], s: &GameState, v: &VariantDef, player: Player
         Some(Action::CardAction { .. }) => {
             ranked(list, |a| match a {
                 Action::CardAction {
-                    gain: Some(gain), ..
+                    choice: CardActionChoice::Pressgang { gain },
+                    ..
                 } => {
                     // Pressgang-style multisets: rank by what the resources
                     // are worth.

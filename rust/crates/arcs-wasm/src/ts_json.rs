@@ -739,6 +739,12 @@ pub enum ActionJson {
     Reinforce {
         system: u8,
     },
+    /// Only emitted when `VariantDef::choose_placement` is on, which the
+    /// browser does not turn on — the TypeScript `Action` union has no
+    /// counterpart.
+    PlaceResource {
+        tier: u8,
+    },
 }
 
 fn cards(list: Option<CardList>) -> Option<Vec<u8>> {
@@ -784,23 +790,18 @@ pub fn action_json(a: Action) -> ActionJson {
             slot,
             spend_as: resource(spend_as),
         },
-        Action::CardPrelude {
-            card,
-            system,
-            slot,
-            target,
-            take_card,
-            played,
-            cards: list,
-        } => ActionJson::CardPrelude {
-            card: card.0,
-            system: sys(system),
-            slot,
-            target: seat(target),
-            take_card: court(take_card),
-            played: played.map(|c| c.0),
-            cards: cards(list),
-        },
+        Action::CardPrelude { card, choice } => {
+            let p = choice.parts();
+            ActionJson::CardPrelude {
+                card: card.0,
+                system: sys(p.system),
+                slot: p.slot,
+                target: seat(p.target),
+                take_card: court(p.take_card),
+                played: p.played.map(|c| c.0),
+                cards: cards(p.cards),
+            }
+        }
         Action::BeginActions => ActionJson::BeginActions,
         Action::Tax { system, building } => ActionJson::Tax {
             system: system.0,
@@ -814,25 +815,19 @@ pub fn action_json(a: Action) -> ActionJson {
             system: system.0,
             kind: building_kind(kind),
         },
-        Action::CardAction {
-            card,
-            name,
-            gain,
-            count,
-            slot,
-            system,
-            building,
-            give_slot,
-        } => ActionJson::CardAction {
-            card: card.0,
-            name: CardActionName::printed(name),
-            gain: gains(gain),
-            count,
-            slot,
-            system: sys(system),
-            building,
-            give_slot,
-        },
+        Action::CardAction { card, choice } => {
+            let p = choice.parts();
+            ActionJson::CardAction {
+                card: card.0,
+                name: CardActionName::printed(choice.name()),
+                gain: gains(p.gain),
+                count: p.count,
+                slot: p.slot,
+                system: sys(p.system),
+                building: p.building,
+                give_slot: p.give_slot,
+            }
+        }
         Action::Move { from, to, ships } => ActionJson::Move {
             from: from.0,
             to: to.0,
@@ -885,27 +880,22 @@ pub fn action_json(a: Action) -> ActionJson {
             take: take.0,
         },
         Action::PeekSwapSkip => ActionJson::PeekSwapSkip,
-        Action::Vox {
-            cluster,
-            ambition: amb,
-            resource: res,
-            system,
-            building,
-            seize,
-            target,
-            card,
-        } => ActionJson::Vox {
-            cluster,
-            ambition: amb.map(ambition),
-            resource: res.map(resource),
-            system: sys(system),
-            building,
-            seize,
-            target: seat(target),
-            card: court(card),
-        },
+        Action::Vox(choice) => {
+            let p = choice.parts();
+            ActionJson::Vox {
+                cluster: p.cluster,
+                ambition: p.ambition.map(ambition),
+                resource: p.resource.map(resource),
+                system: sys(p.system),
+                building: p.building,
+                seize: p.seize,
+                target: seat(p.target),
+                card: court(p.card),
+            }
+        }
         Action::VoxSkip => ActionJson::VoxSkip,
         Action::Reinforce { system } => ActionJson::Reinforce { system: system.0 },
+        Action::PlaceResource { tier } => ActionJson::PlaceResource { tier },
     }
 }
 
@@ -1013,7 +1003,7 @@ pub fn variant_json(v: &VariantDef) -> VariantJson {
                 planet_type: d.planet_type.map(resource),
                 building_slots: d.building_slots,
                 adjacent: d.adjacent.iter().map(|s| s.0).collect(),
-                label: d.label(),
+                label: d.to_string(),
             })
             .collect(),
         action_deck: v

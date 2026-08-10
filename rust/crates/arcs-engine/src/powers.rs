@@ -24,11 +24,13 @@
 //! held Guild cards today, the `leader` / `lore` fields on
 //! [`crate::state::PlayerState`] once Leaders & Lore lands.
 
-use crate::action::{Action, CardActionName, CardList, ResourceList};
+use crate::action::{
+    Action, CardActionChoice, CardActionName, CardList, PreludeChoice, ResourceList, VoxChoice,
+};
 use crate::cards::action_card;
 use crate::court::{
-    CardPower, CourtCardKind, NewActionEffect, NoZeroScope, Passive, PreludeAbility, VoxEffect,
-    court_card,
+    CardPower, CourtCardKind, NewAction, NewActionEffect, NoZeroScope, Passive, PreludeAbility,
+    VoxEffect, court_card,
 };
 use crate::game::RuleError;
 use crate::inline_vec::InlineVec;
@@ -442,26 +444,15 @@ fn steal_card_targets(
     out
 }
 
+/// Slots a player can still fill — free of both tokens and unplaced ones, so
+/// a multi-token gain cannot promise more room than it has.
 fn empty_slots(p: &PlayerState) -> usize {
-    let open = p.open_resource_slots();
-    p.resources
-        .iter()
-        .take(open)
-        .filter(|r| r.is_none())
-        .count()
+    p.free_slots()
 }
 
-/// A `cardPrelude` action with only the card set.
-const fn bare_prelude(card: CourtCardId) -> Action {
-    Action::CardPrelude {
-        card,
-        system: None,
-        slot: None,
-        target: None,
-        take_card: None,
-        played: None,
-        cards: None,
-    }
+/// A `cardPrelude` action naming a choice.
+const fn prelude(card: CourtCardId, choice: PreludeChoice) -> Action {
+    Action::CardPrelude { card, choice }
 }
 
 /// Enumerate the legal `cardPrelude` actions for the player on turn.
@@ -490,63 +481,59 @@ pub fn prelude_card_actions(s: &GameState, _v: &VariantDef, player: Player, out:
                     continue;
                 }
                 for &system in controlled_systems(s, player).iter() {
-                    let mut a = bare_prelude(card);
-                    if let Action::CardPrelude { system: sys, .. } = &mut a {
-                        *sys = Some(system);
-                    }
-                    out.push(a);
+                    out.push(prelude(card, PreludeChoice::System(system)));
                 }
             }
             PreludeAbility::ShipInEveryGate => {
                 if p.ships_supply > 0 {
-                    out.push(bare_prelude(card));
+                    out.push(prelude(card, PreludeChoice::Bare));
                 }
             }
             PreludeAbility::FillSlots { .. } => {
                 if empty_slots(p) > 0 {
-                    out.push(bare_prelude(card));
+                    out.push(prelude(card, PreludeChoice::Bare));
                 }
             }
             PreludeAbility::GainResources { .. } => {
                 if empty_slots(p) > 0 {
-                    out.push(bare_prelude(card));
+                    out.push(prelude(card, PreludeChoice::Bare));
                 }
             }
             PreludeAbility::SeizeInitiative => {
                 if !s.initiative_seized && player != s.initiative {
-                    out.push(bare_prelude(card));
+                    out.push(prelude(card, PreludeChoice::Bare));
                 }
             }
             PreludeAbility::StealResource { resource } => {
                 for t in steal_targets(s, player, Some(resource)).iter() {
-                    let mut a = bare_prelude(card);
-                    if let Action::CardPrelude { target, slot, .. } = &mut a {
-                        *target = Some(t.player);
-                        *slot = Some(t.slot);
-                    }
-                    out.push(a);
+                    out.push(prelude(
+                        card,
+                        PreludeChoice::StealResource {
+                            target: t.player,
+                            slot: t.slot,
+                        },
+                    ));
                 }
             }
             PreludeAbility::StealAny => {
                 // Silver-Tongues: "steal a Guild card or resource".
                 for t in steal_targets(s, player, None).iter() {
-                    let mut a = bare_prelude(card);
-                    if let Action::CardPrelude { target, slot, .. } = &mut a {
-                        *target = Some(t.player);
-                        *slot = Some(t.slot);
-                    }
-                    out.push(a);
+                    out.push(prelude(
+                        card,
+                        PreludeChoice::StealResource {
+                            target: t.player,
+                            slot: t.slot,
+                        },
+                    ));
                 }
                 for t in steal_card_targets(s, player).iter() {
-                    let mut a = bare_prelude(card);
-                    if let Action::CardPrelude {
-                        target, take_card, ..
-                    } = &mut a
-                    {
-                        *target = Some(t.player);
-                        *take_card = Some(t.card);
-                    }
-                    out.push(a);
+                    out.push(prelude(
+                        card,
+                        PreludeChoice::StealCard {
+                            target: t.player,
+                            card: t.card,
+                        },
+                    ));
                 }
             }
             PreludeAbility::ConvertResource { gain } => {
@@ -557,11 +544,10 @@ pub fn prelude_card_actions(s: &GameState, _v: &VariantDef, player: Player, out:
                 }
                 for slot in 0..p.open_resource_slots() {
                     if p.resources[slot].is_some() {
-                        let mut a = bare_prelude(card);
-                        if let Action::CardPrelude { slot: sl, .. } = &mut a {
-                            *sl = Some(slot as u8);
-                        }
-                        out.push(a);
+                        out.push(prelude(
+                            card,
+                            PreludeChoice::ConvertResource { slot: slot as u8 },
+                        ));
                     }
                 }
             }
@@ -575,11 +561,7 @@ pub fn prelude_card_actions(s: &GameState, _v: &VariantDef, player: Player, out:
                         continue;
                     }
                     if action_card(play.card).suit == suit {
-                        let mut a = bare_prelude(card);
-                        if let Action::CardPrelude { played, .. } = &mut a {
-                            *played = Some(play.card);
-                        }
-                        out.push(a);
+                        out.push(prelude(card, PreludeChoice::Union { played: play.card }));
                     }
                 }
             }
@@ -605,12 +587,8 @@ pub fn prelude_card_actions(s: &GameState, _v: &VariantDef, player: Player, out:
                 }
                 // Smallest subsets first, stable within a size (as in TS).
                 picks.sort_by_key(|p| p.len());
-                for pick in picks {
-                    let mut a = bare_prelude(card);
-                    if let Action::CardPrelude { cards, .. } = &mut a {
-                        *cards = Some(pick);
-                    }
-                    out.push(a);
+                for cards in picks {
+                    out.push(prelude(card, PreludeChoice::Recycle { cards }));
                 }
             }
         }
@@ -619,16 +597,7 @@ pub fn prelude_card_actions(s: &GameState, _v: &VariantDef, player: Player, out:
 
 /// Apply a `cardPrelude` action. (`applyCardPrelude` in powers.ts.)
 pub fn apply_card_prelude(s: &mut GameState, v: &VariantDef, a: Action) -> Result<(), RuleError> {
-    let Action::CardPrelude {
-        card,
-        system,
-        slot,
-        target,
-        take_card,
-        played,
-        cards,
-    } = a
-    else {
+    let Action::CardPrelude { card, choice } = a else {
         return Err(RuleError::Illegal("not a cardPrelude action"));
     };
     let turn = s.turn.ok_or(RuleError::Illegal("no turn in progress"))?;
@@ -642,7 +611,9 @@ pub fn apply_card_prelude(s: &mut GameState, v: &VariantDef, a: Action) -> Resul
 
     match ability {
         PreludeAbility::PlaceShips { count } => {
-            let system = system.ok_or(RuleError::Illegal("placeShips needs a system"))?;
+            let PreludeChoice::System(system) = choice else {
+                return Err(RuleError::Illegal("placeShips needs a system"));
+            };
             let n = count.min(s.player(player).ships_supply);
             s.systems[system.as_index()].fresh[player.as_index()] += n;
             s.player_mut(player).ships_supply -= n;
@@ -665,7 +636,7 @@ pub fn apply_card_prelude(s: &mut GameState, v: &VariantDef, a: Action) -> Resul
             let mut want = empty_slots(s.player(player));
             while want > 0 {
                 if s.supply[resource.as_index()] > 0 {
-                    if !s.take_from_supply(player, resource) {
+                    if !s.take_from_supply(v, player, resource) {
                         break;
                     }
                 } else {
@@ -673,14 +644,14 @@ pub fn apply_card_prelude(s: &mut GameState, v: &VariantDef, a: Action) -> Resul
                     let Some(t) = targets.iter().next().copied() else {
                         break;
                     };
-                    steal_into(s, player, t.player, t.slot as usize);
+                    steal_into(s, v, player, t.player, t.slot as usize);
                 }
                 want -= 1;
             }
         }
         PreludeAbility::GainResources { resources } => {
             for &r in resources {
-                s.take_from_supply(player, r);
+                s.take_from_supply(v, player, r);
             }
         }
         PreludeAbility::SeizeInitiative => {
@@ -689,22 +660,26 @@ pub fn apply_card_prelude(s: &mut GameState, v: &VariantDef, a: Action) -> Resul
             s.stats.seizes += 1;
         }
         PreludeAbility::StealResource { .. } => {
-            let target = target.ok_or(RuleError::Illegal("steal needs a target"))?;
-            let slot = slot.ok_or(RuleError::Illegal("steal needs a slot"))?;
-            steal_into(s, player, target, slot as usize);
+            let PreludeChoice::StealResource { target, slot } = choice else {
+                return Err(RuleError::Illegal("steal needs a target and slot"));
+            };
+            steal_into(s, v, player, target, slot as usize);
         }
-        PreludeAbility::StealAny => {
-            let target = target.ok_or(RuleError::Illegal("steal needs a target"))?;
-            match take_card {
-                Some(taken) => steal_guild_card(s, target, player, taken),
-                None => {
-                    let slot = slot.ok_or(RuleError::Illegal("steal needs a slot"))?;
-                    steal_into(s, player, target, slot as usize);
-                }
+        PreludeAbility::StealAny => match choice {
+            PreludeChoice::StealCard {
+                target,
+                card: taken,
+            } => steal_guild_card(s, target, player, taken),
+            PreludeChoice::StealResource { target, slot } => {
+                steal_into(s, v, player, target, slot as usize)
             }
-        }
+            _ => return Err(RuleError::Illegal("steal needs a target")),
+        },
         PreludeAbility::ConvertResource { gain } => {
-            let slot = slot.ok_or(RuleError::Illegal("convert needs a slot"))? as usize;
+            let PreludeChoice::ConvertResource { slot } = choice else {
+                return Err(RuleError::Illegal("convert needs a slot"));
+            };
+            let slot = slot as usize;
             let given = s
                 .player(player)
                 .resources
@@ -714,7 +689,7 @@ pub fn apply_card_prelude(s: &mut GameState, v: &VariantDef, a: Action) -> Resul
                 .ok_or(RuleError::Illegal("no resource in that slot"))?;
             s.player_mut(player).resources[slot] = None;
             s.return_to_supply(given);
-            s.take_from_supply(player, gain);
+            s.take_from_supply(v, player, gain);
             // Relic Fence stays in play; it is once per turn instead.
             discard = false;
             if let Some(turn) = s.turn.as_mut() {
@@ -726,7 +701,9 @@ pub fn apply_card_prelude(s: &mut GameState, v: &VariantDef, a: Action) -> Resul
             // until the round ends. It scores nothing while attached, which
             // costs the holder nothing: ambitions only score at a chapter
             // break, by which time every attachment has already resolved.
-            let played = played.ok_or(RuleError::Illegal("attach needs a played card"))?;
+            let PreludeChoice::Union { played } = choice else {
+                return Err(RuleError::Illegal("attach needs a played card"));
+            };
             if !s.round.played.iter().any(|c| c.card == played) {
                 return Err(RuleError::Illegal("no such played card"));
             }
@@ -743,7 +720,9 @@ pub fn apply_card_prelude(s: &mut GameState, v: &VariantDef, a: Action) -> Resul
             // same number of cards (including Farseers) from the bottom of
             // the action discard pile." The count includes Farseers itself,
             // so n discarded hand cards redraw n + 1.
-            let give = cards.unwrap_or_default();
+            let PreludeChoice::Recycle { cards: give } = choice else {
+                return Err(RuleError::Illegal("recycle needs a card list"));
+            };
             for &c in give.iter() {
                 let hand = &mut s.player_mut(player).hand;
                 if let Some(i) = hand.position(&c) {
@@ -774,12 +753,12 @@ pub fn apply_card_prelude(s: &mut GameState, v: &VariantDef, a: Action) -> Resul
 
 /// Move one resource from a Rival's slot into the player's slots.
 /// (`stealInto` in powers.ts.)
-fn steal_into(s: &mut GameState, player: Player, victim: Player, slot: usize) {
+fn steal_into(s: &mut GameState, v: &VariantDef, player: Player, victim: Player, slot: usize) {
     let Some(&Some(r)) = s.player(victim).resources.get(slot) else {
         return;
     };
     s.player_mut(victim).resources[slot] = None;
-    if !s.player_mut(player).gain_resource(r) {
+    if !s.gain_into(v, player, r) {
         s.return_to_supply(r); // no room: the token goes back to the supply (p17)
     }
 }
@@ -788,18 +767,9 @@ fn steal_into(s: &mut GameState, player: Player, victim: Player, slot: usize) {
 // New actions
 // ---------------------------------------------------------------------------
 
-/// A `cardAction` with only card and name set.
-const fn bare_card_action(card: CourtCardId, name: CardActionName) -> Action {
-    Action::CardAction {
-        card,
-        name,
-        gain: None,
-        count: None,
-        slot: None,
-        system: None,
-        building: None,
-        give_slot: None,
-    }
+/// A `cardAction` naming a choice.
+const fn card_action(card: CourtCardId, choice: CardActionChoice) -> Action {
+    Action::CardAction { card, choice }
 }
 
 /// New actions a player can afford right now, given the kinds they can pay
@@ -818,8 +788,6 @@ pub fn card_actions(
             if !kinds.contains(na.replaces) {
                 continue;
             }
-            let name = CardActionName::from_printed(na.name)
-                .expect("every printed card-action name has an enum variant");
 
             match na.effect {
                 NewActionEffect::GainResource { resource } => {
@@ -830,7 +798,13 @@ pub fn card_actions(
                     if empty_slots(p) == 0 {
                         continue;
                     }
-                    out.push(bare_card_action(card, name));
+                    // The two gain-a-resource cards differ only by name.
+                    let choice = match na.name {
+                        CardActionName::Manufacture => CardActionChoice::Manufacture,
+                        CardActionName::Synthesize => CardActionChoice::Synthesize,
+                        _ => continue,
+                    };
+                    out.push(card_action(card, choice));
                 }
                 NewActionEffect::Pressgang => {
                     // "Return any number of your Captives to gain any 1
@@ -842,22 +816,14 @@ pub fn card_actions(
                         .collect();
                     for k in 1..=most {
                         for gain in multisets(&available, k) {
-                            let mut a = bare_card_action(card, name);
-                            if let Action::CardAction { gain: g, .. } = &mut a {
-                                *g = Some(gain);
-                            }
-                            out.push(a);
+                            out.push(card_action(card, CardActionChoice::Pressgang { gain }));
                         }
                     }
                 }
                 NewActionEffect::Execute => {
                     // "Move any number of your Captives to your Trophies."
-                    for k in 1..=p.captive_count() {
-                        let mut a = bare_card_action(card, name);
-                        if let Action::CardAction { count, .. } = &mut a {
-                            *count = Some(k);
-                        }
-                        out.push(a);
+                    for count in 1..=p.captive_count() {
+                        out.push(card_action(card, CardActionChoice::Execute { count }));
                     }
                 }
                 NewActionEffect::Abduct => {
@@ -875,15 +841,14 @@ pub fn card_actions(
                             .map(|(_, &n)| n)
                             .sum();
                         if rivals > 0 && rivals < icons {
-                            let mut a = bare_card_action(card, name);
-                            if let Action::CardAction { slot, .. } = &mut a {
-                                *slot = Some(i as u8);
-                            }
-                            out.push(a);
+                            out.push(card_action(
+                                card,
+                                CardActionChoice::Abduct { slot: i as u8 },
+                            ));
                         }
                     }
                 }
-                NewActionEffect::Trade => trade_actions(s, v, player, card, name, out),
+                NewActionEffect::Trade => trade_actions(s, v, player, card, out),
             }
         }
     }
@@ -902,7 +867,6 @@ fn trade_actions(
     v: &VariantDef,
     player: Player,
     card: CourtCardId,
-    name: CardActionName,
     out: &mut Vec<Action>,
 ) {
     let me = s.player(player);
@@ -934,21 +898,15 @@ fn trade_actions(
                 if them.resources.iter().flatten().any(|&r| r == mine) {
                     continue;
                 }
-                let mut a = bare_card_action(card, name);
-                if let Action::CardAction {
-                    system,
-                    building: bl,
-                    slot,
-                    give_slot: gs,
-                    ..
-                } = &mut a
-                {
-                    *system = Some(def.id);
-                    *bl = Some(building as u8);
-                    *slot = Some(take_slot as u8);
-                    *gs = Some(give_slot as u8);
-                }
-                out.push(a);
+                out.push(card_action(
+                    card,
+                    CardActionChoice::Trade {
+                        system: def.id,
+                        building: building as u8,
+                        slot: take_slot as u8,
+                        give_slot: give_slot as u8,
+                    },
+                ));
             }
         }
     }
@@ -981,63 +939,61 @@ fn multisets(types: &[ResourceType], k: usize) -> Vec<ResourceList> {
 /// The standard action a card action is paid for with.
 /// (`cardActionCost` in powers.ts.)
 pub fn card_action_cost(card: CourtCardId, name: CardActionName) -> Result<ActionKind, RuleError> {
+    new_action(card, name).map(|na| na.replaces)
+}
+
+/// The card's printed entry for a named new action.
+fn new_action(card: CourtCardId, name: CardActionName) -> Result<&'static NewAction, RuleError> {
     court_card(card)
         .power
         .map(|p| p.new_actions)
         .unwrap_or(&[])
         .iter()
-        .find(|na| na.name == name.printed())
-        .map(|na| na.replaces)
+        .find(|na| na.name == name)
         .ok_or(RuleError::Illegal("unknown card action"))
 }
 
 /// Apply a `cardAction`. (`applyCardAction` in powers.ts.)
-pub fn apply_card_action(s: &mut GameState, player: Player, a: Action) -> Result<(), RuleError> {
-    let Action::CardAction {
-        card,
-        name,
-        gain,
-        count,
-        slot,
-        system,
-        building,
-        give_slot,
-    } = a
-    else {
+pub fn apply_card_action(
+    s: &mut GameState,
+    v: &VariantDef,
+    player: Player,
+    a: Action,
+) -> Result<(), RuleError> {
+    let Action::CardAction { card, choice } = a else {
         return Err(RuleError::Illegal("not a cardAction"));
     };
-    let na = court_card(card)
-        .power
-        .map(|p| p.new_actions)
-        .unwrap_or(&[])
-        .iter()
-        .find(|na| na.name == name.printed())
-        .ok_or(RuleError::Illegal("unknown card action"))?;
+    // The printed entry still gates the action: a choice naming an ability the
+    // card does not have is illegal, not merely inert.
+    let na = new_action(card, choice.name())?;
 
-    match na.effect {
-        NewActionEffect::GainResource { resource } => {
-            s.take_from_supply(player, resource);
+    match choice {
+        CardActionChoice::Manufacture | CardActionChoice::Synthesize => {
+            let NewActionEffect::GainResource { resource } = na.effect else {
+                return Err(RuleError::Illegal("card action is not a gain"));
+            };
+            s.take_from_supply(v, player, resource);
             Ok(())
         }
-        NewActionEffect::Pressgang => {
+        CardActionChoice::Pressgang { gain } => {
             // One Captive returns to its owner's supply per resource gained.
-            for &r in gain.unwrap_or_default().iter() {
+            for &r in gain.iter() {
                 let Some(owner) = pop_captive(s, player) else {
                     break;
                 };
                 s.player_mut(owner).agents_supply += 1;
-                s.take_from_supply(player, r);
+                s.take_from_supply(v, player, r);
             }
             Ok(())
         }
-        NewActionEffect::Execute => {
+        CardActionChoice::Execute { count } => {
             // TS ruling: the Captives moved are taken in capture order,
             // which only decides whose supply an agent later returns to.
             // The Rust count-matrix has no capture order, so the port
             // resolves it deterministically: highest owner index first
             // (see state.rs module docs; documented deviation, same
             // counts).
-            let n = count.unwrap_or(0).min(s.player(player).captive_count());
+            let n = count.min(s.player(player).captive_count());
             for _ in 0..n {
                 let Some(owner) = pop_captive(s, player) else {
                     break;
@@ -1046,8 +1002,8 @@ pub fn apply_card_action(s: &mut GameState, player: Player, a: Action) -> Result
             }
             Ok(())
         }
-        NewActionEffect::Abduct => {
-            let slot = slot.ok_or(RuleError::Illegal("abduct needs a court slot"))? as usize;
+        CardActionChoice::Abduct { slot } => {
+            let slot = slot as usize;
             if slot >= s.court.len() {
                 return Err(RuleError::Illegal("no such court slot"));
             }
@@ -1061,11 +1017,15 @@ pub fn apply_card_action(s: &mut GameState, player: Player, a: Action) -> Result
             }
             Ok(())
         }
-        NewActionEffect::Trade => {
-            let system = system.ok_or(RuleError::Illegal("trade needs a system"))?;
-            let building = building.ok_or(RuleError::Illegal("trade needs a building"))? as usize;
-            let slot = slot.ok_or(RuleError::Illegal("trade needs a slot"))? as usize;
-            let give_slot = give_slot.ok_or(RuleError::Illegal("trade needs a giveSlot"))? as usize;
+        CardActionChoice::Trade {
+            system,
+            building,
+            slot,
+            give_slot,
+        } => {
+            let building = building as usize;
+            let slot = slot as usize;
+            let give_slot = give_slot as usize;
             let owner = s.systems[system.as_index()]
                 .buildings
                 .as_slice()
@@ -1176,20 +1136,6 @@ pub fn apply_vox_immediate(s: &mut GameState, player: Player, card: CourtCardId)
     s.court_discard.push(card);
 }
 
-/// A `vox` action with no fields set.
-const fn bare_vox() -> Action {
-    Action::Vox {
-        cluster: None,
-        ambition: None,
-        resource: None,
-        system: None,
-        building: None,
-        seize: None,
-        target: None,
-        card: None,
-    }
-}
-
 /// Enumerate the choices for the pending Vox card.
 /// (`voxActions` in powers.ts.)
 pub fn vox_actions(s: &GameState, out: &mut Vec<Action>) {
@@ -1210,11 +1156,7 @@ pub fn vox_actions(s: &GameState, out: &mut Vec<Action>) {
                     let any_in_play = (0..SYSTEM_COUNT)
                         .any(|i| !s.systems[i].out_of_play && cluster_of(SystemId(i as u8)) == c);
                     if any_in_play {
-                        let mut a = bare_vox();
-                        if let Action::Vox { cluster, .. } = &mut a {
-                            *cluster = Some(c);
-                        }
-                        out.push(a);
+                        out.push(Action::Vox(VoxChoice::Cluster(c)));
                     }
                 }
             }
@@ -1222,21 +1164,13 @@ pub fn vox_actions(s: &GameState, out: &mut Vec<Action>) {
         VoxEffect::DeclareAnyAmbition => {
             if !s.available_markers.is_empty() {
                 for ambition in AmbitionId::ALL {
-                    let mut a = bare_vox();
-                    if let Action::Vox { ambition: am, .. } = &mut a {
-                        *am = Some(ambition);
-                    }
-                    out.push(a);
+                    out.push(Action::Vox(VoxChoice::Declare(ambition)));
                 }
             }
         }
         VoxEffect::OutrageAll => {
             for resource in ResourceType::ALL {
-                let mut a = bare_vox();
-                if let Action::Vox { resource: r, .. } = &mut a {
-                    *r = Some(resource);
-                }
-                out.push(a);
+                out.push(Action::Vox(VoxChoice::Outrage(resource)));
             }
         }
         VoxEffect::ReturnCityMaySeize => {
@@ -1256,31 +1190,21 @@ pub fn vox_actions(s: &GameState, out: &mut Vec<Action>) {
                         if seize && (s.initiative_seized || player == s.initiative) {
                             continue;
                         }
-                        let mut a = bare_vox();
-                        if let Action::Vox {
-                            system: sys,
-                            building,
-                            seize: sz,
-                            ..
-                        } = &mut a
-                        {
-                            *sys = Some(system);
-                            *building = Some(bi as u8);
-                            *sz = Some(seize);
-                        }
-                        out.push(a);
+                        out.push(Action::Vox(VoxChoice::ReturnCity {
+                            system,
+                            building: bi as u8,
+                            seize,
+                        }));
                     }
                 }
             }
         }
         VoxEffect::StealGuildCardAndRecycle => {
             for t in steal_card_targets(s, player).iter() {
-                let mut a = bare_vox();
-                if let Action::Vox { target, card, .. } = &mut a {
-                    *target = Some(t.player);
-                    *card = Some(t.card);
-                }
-                out.push(a);
+                out.push(Action::Vox(VoxChoice::Steal {
+                    target: t.player,
+                    card: t.card,
+                }));
             }
         }
         VoxEffect::DrawFromDiscardBottom => {}
@@ -1313,19 +1237,17 @@ pub fn apply_vox(s: &mut GameState, a: Action) -> Result<Option<AmbitionId>, Rul
     let effect = court_card(pending.card)
         .vox
         .ok_or(RuleError::Illegal("pending Vox on a non-Vox card"))?;
-    let declined = a == Action::VoxSkip;
-    if !declined && !matches!(a, Action::Vox { .. }) {
-        return Err(RuleError::Illegal("a Vox effect is pending"));
-    }
+    // `None` is a decline (VoxSkip); every other action is out of place.
+    let choice = match a {
+        Action::VoxSkip => None,
+        Action::Vox(choice) => Some(choice),
+        _ => return Err(RuleError::Illegal("a Vox effect is pending")),
+    };
     let mut declare = None;
 
     match effect {
         VoxEffect::ShipInEachSystemOfCluster => {
-            if let Action::Vox {
-                cluster: Some(cluster),
-                ..
-            } = a
-            {
+            if let Some(VoxChoice::Cluster(cluster)) = choice {
                 for i in 0..SYSTEM_COUNT {
                     if s.systems[i].out_of_play || cluster_of(SystemId(i as u8)) != cluster {
                         continue;
@@ -1340,22 +1262,14 @@ pub fn apply_vox(s: &mut GameState, a: Action) -> Result<Option<AmbitionId>, Rul
             s.court_discard.push(pending.card);
         }
         VoxEffect::DeclareAnyAmbition => {
-            if let Action::Vox {
-                ambition: Some(ambition),
-                ..
-            } = a
-            {
+            if let Some(VoxChoice::Declare(ambition)) = choice {
                 declare = Some(ambition);
             }
             s.court_discard.push(pending.card);
         }
         VoxEffect::OutrageAll => {
             // "Each player (even you) must Provoke Outrage of that type."
-            if let Action::Vox {
-                resource: Some(resource),
-                ..
-            } = a
-            {
+            if let Some(VoxChoice::Outrage(resource)) = choice {
                 for pl in 0..s.players {
                     provoke_outrage(s, Player(pl), resource);
                 }
@@ -1363,12 +1277,11 @@ pub fn apply_vox(s: &mut GameState, a: Action) -> Result<Option<AmbitionId>, Rul
             s.court_discard.push(pending.card);
         }
         VoxEffect::ReturnCityMaySeize => {
-            if let Action::Vox {
-                system: Some(system),
-                building: Some(building),
+            if let Some(VoxChoice::ReturnCity {
+                system,
+                building,
                 seize,
-                ..
-            } = a
+            }) = choice
             {
                 let st = &s.systems[system.as_index()];
                 let b = st.buildings.as_slice().get(building as usize).copied();
@@ -1384,7 +1297,7 @@ pub fn apply_vox(s: &mut GameState, a: Action) -> Result<Option<AmbitionId>, Rul
                         o.cities_used = o.cities_used.saturating_sub(1);
                     }
                     s.compact_resources_of(owner);
-                    if seize == Some(true) && !s.initiative_seized && player != s.initiative {
+                    if seize && !s.initiative_seized && player != s.initiative {
                         s.round.seized_by = Some(player);
                         s.initiative_seized = true;
                         s.stats.seizes += 1;
@@ -1396,13 +1309,7 @@ pub fn apply_vox(s: &mut GameState, a: Action) -> Result<Option<AmbitionId>, Rul
             s.court_deck.insert(0, pending.card);
         }
         VoxEffect::StealGuildCardAndRecycle => {
-            if let Action::Vox {
-                target: Some(target),
-                card: Some(card),
-                ..
-            } = a
-                && !declined
-            {
+            if let Some(VoxChoice::Steal { target, card }) = choice {
                 if !s.player(target).guild_cards.contains(&card) {
                     return Err(RuleError::Illegal("target does not hold that card"));
                 }
