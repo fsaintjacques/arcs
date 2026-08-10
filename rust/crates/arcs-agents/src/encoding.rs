@@ -68,7 +68,12 @@ use arcs_engine::{Action, CardActionName, FollowMode, HitTarget};
 
 /// Bump when any field's cardinality or meaning changes. A net trained
 /// against an older version must be retrained, not reinterpreted.
-pub const ENCODING_VERSION: u32 = 1;
+///
+/// - **2**: `PlaceResource` joined the `kind` head (p17 slot placement, behind
+///   `VariantDef::choose_placement`). Every other head is unchanged, which is
+///   the transfer property the module docs claim for added variants — a v1 net
+///   keeps its system/card/count structure and only the `kind` head grows.
+pub const ENCODING_VERSION: u32 = 2;
 
 /// Cardinality of each head, in [`HeadTargets`] field order.
 ///
@@ -76,8 +81,8 @@ pub const ENCODING_VERSION: u32 = 1;
 /// real parameter keeps its natural encoding (system 3 is 3, slot 0 is 0,
 /// count 0 is 0) and a policy head does not have to learn an off-by-one.
 pub const HEAD_SIZES: HeadSizes = HeadSizes {
-    // The 34 `Action` variants.
-    kind: 34,
+    // The 35 `Action` variants.
+    kind: 35,
     // 28 action cards, then 31 Court cards, then the sentinel.
     card: (ACTION_CARD_COUNT + COURT_CARD_COUNT + 1) as u16,
     // 24 systems, then the sentinel.
@@ -230,6 +235,9 @@ pub enum ActionKindId {
     Vox = 31,
     VoxSkip = 32,
     Reinforce = 33,
+    /// Only reachable with `VariantDef::choose_placement`; see the note on
+    /// [`ENCODING_VERSION`].
+    PlaceResource = 34,
 }
 
 /// Clamp a count into the `count` head's domain. Counts larger than a whole
@@ -315,28 +323,24 @@ pub fn action_targets(a: Action) -> HeadTargets {
             mode: spend_as.as_index() as u8,
             ..HeadTargets::of(K::SpendResourceAs)
         },
-        Action::CardPrelude {
-            card,
-            system,
-            slot,
-            target,
-            take_card,
-            played,
-            cards,
-        } => HeadTargets {
-            card: COURT_CARD_BASE + card.0,
-            system: system.map_or(SYSTEM_NONE, |s| s.0),
-            slot: slot.unwrap_or(SLOT_NONE),
-            // Lossy by design: the recycled hand subset is summarised by its
-            // size. See the module docs.
-            count: cards.map_or(COUNT_NONE, |c| count_of(c.len() as u8)),
-            mode: target.map_or(MODE_NONE, |p| p.0),
-            aux: take_card
-                .map(|c| aux_of(c.0))
-                .or(played.map(|c| aux_of(c.0)))
-                .unwrap_or(AUX_NONE),
-            ..HeadTargets::of(K::CardPrelude)
-        },
+        Action::CardPrelude { card, choice } => {
+            let p = choice.parts();
+            HeadTargets {
+                card: COURT_CARD_BASE + card.0,
+                system: p.system.map_or(SYSTEM_NONE, |s| s.0),
+                slot: p.slot.unwrap_or(SLOT_NONE),
+                // Lossy by design: the recycled hand subset is summarised by
+                // its size. See the module docs.
+                count: p.cards.map_or(COUNT_NONE, |c| count_of(c.len() as u8)),
+                mode: p.target.map_or(MODE_NONE, |t| t.0),
+                aux: p
+                    .take_card
+                    .map(|c| aux_of(c.0))
+                    .or(p.played.map(|c| aux_of(c.0)))
+                    .unwrap_or(AUX_NONE),
+                ..HeadTargets::of(K::CardPrelude)
+            }
+        }
         Action::BeginActions => HeadTargets::of(K::BeginActions),
         Action::Tax { system, building } => HeadTargets {
             system: system.0,
@@ -353,34 +357,29 @@ pub fn action_targets(a: Action) -> HeadTargets {
             mode: kind.as_index() as u8,
             ..HeadTargets::of(K::BuildBuilding)
         },
-        Action::CardAction {
-            card,
-            name,
-            gain,
-            count,
-            slot,
-            system,
-            building,
-            give_slot,
-        } => HeadTargets {
-            card: COURT_CARD_BASE + card.0,
-            system: system.map_or(SYSTEM_NONE, |s| s.0),
-            slot: slot.or(give_slot).unwrap_or(SLOT_NONE),
-            // Lossy by design: a Pressgang gain is summarised by its size.
-            count: count
-                .or(gain.map(|g| g.len() as u8))
-                .map_or(COUNT_NONE, count_of),
-            mode: match name {
-                CardActionName::Manufacture => 0,
-                CardActionName::Synthesize => 1,
-                CardActionName::Pressgang => 2,
-                CardActionName::Execute => 3,
-                CardActionName::Abduct => 4,
-                CardActionName::Trade => 5,
-            },
-            aux: building.map_or(AUX_NONE, aux_of),
-            ..HeadTargets::of(K::CardAction)
-        },
+        Action::CardAction { card, choice } => {
+            let p = choice.parts();
+            HeadTargets {
+                card: COURT_CARD_BASE + card.0,
+                system: p.system.map_or(SYSTEM_NONE, |s| s.0),
+                slot: p.slot.or(p.give_slot).unwrap_or(SLOT_NONE),
+                // Lossy by design: a Pressgang gain is summarised by its size.
+                count: p
+                    .count
+                    .or(p.gain.map(|g| g.len() as u8))
+                    .map_or(COUNT_NONE, count_of),
+                mode: match choice.name() {
+                    CardActionName::Manufacture => 0,
+                    CardActionName::Synthesize => 1,
+                    CardActionName::Pressgang => 2,
+                    CardActionName::Execute => 3,
+                    CardActionName::Abduct => 4,
+                    CardActionName::Trade => 5,
+                },
+                aux: p.building.map_or(AUX_NONE, aux_of),
+                ..HeadTargets::of(K::CardAction)
+            }
+        }
         Action::Move { from, to, ships } => HeadTargets {
             system: from.0,
             count: count_of(ships),
@@ -459,33 +458,35 @@ pub fn action_targets(a: Action) -> HeadTargets {
             ..HeadTargets::of(K::PeekSwap)
         },
         Action::PeekSwapSkip => HeadTargets::of(K::PeekSwapSkip),
-        Action::Vox {
-            cluster,
-            ambition,
-            resource,
-            system,
-            building,
-            seize,
-            target,
-            card,
-        } => HeadTargets {
-            card: card.map_or(CARD_NONE, |c| COURT_CARD_BASE + c.0),
-            system: system.map_or(SYSTEM_NONE, |s| s.0),
-            slot: building.unwrap_or(SLOT_NONE),
-            count: cluster.map_or(COUNT_NONE, count_of),
-            mode: ambition
-                .map(|a| a.as_index() as u8)
-                .or(resource.map(|r| r.as_index() as u8))
-                .unwrap_or(MODE_NONE),
-            // No Vox card asks for a seat *and* a seize choice, so the two
-            // share `aux`; the seize flag sits above the seat range.
-            aux: target
-                .map(|p| p.0)
-                .or(seize.map(|s| VOX_SEIZE_BASE + s as u8))
-                .unwrap_or(AUX_NONE),
-            ..HeadTargets::of(K::Vox)
-        },
+        Action::Vox(choice) => {
+            let p = choice.parts();
+            HeadTargets {
+                card: p.card.map_or(CARD_NONE, |c| COURT_CARD_BASE + c.0),
+                system: p.system.map_or(SYSTEM_NONE, |s| s.0),
+                slot: p.building.unwrap_or(SLOT_NONE),
+                count: p.cluster.map_or(COUNT_NONE, count_of),
+                mode: p
+                    .ambition
+                    .map(|a| a.as_index() as u8)
+                    .or(p.resource.map(|r| r.as_index() as u8))
+                    .unwrap_or(MODE_NONE),
+                // No Vox card asks for a seat *and* a seize choice, so the two
+                // share `aux`; the seize flag sits above the seat range.
+                aux: p
+                    .target
+                    .map(|t| t.0)
+                    .or(p.seize.map(|s| VOX_SEIZE_BASE + s as u8))
+                    .unwrap_or(AUX_NONE),
+                ..HeadTargets::of(K::Vox)
+            }
+        }
         Action::VoxSkip => HeadTargets::of(K::VoxSkip),
+        // The raid-cost tier is a per-kind categorical, so it rides `mode`
+        // alongside the other small enumerations.
+        Action::PlaceResource { tier } => HeadTargets {
+            mode: tier,
+            ..HeadTargets::of(K::PlaceResource)
+        },
         Action::Reinforce { system } => HeadTargets {
             system: system.0,
             ..HeadTargets::of(K::Reinforce)
@@ -567,11 +568,11 @@ mod tests {
     /// policy, so pin both together.
     #[test]
     fn encoding_layout_is_pinned() {
-        assert_eq!(ENCODING_VERSION, 1);
+        assert_eq!(ENCODING_VERSION, 2);
         assert_eq!(
             HEAD_SIZES,
             HeadSizes {
-                kind: 34,
+                kind: 35,
                 card: 60,
                 system: 25,
                 slot: 8,
@@ -580,8 +581,8 @@ mod tests {
                 aux: 32,
             }
         );
-        assert_eq!(HEAD_SIZES.total_outputs(), 184);
-        assert_eq!(HEAD_SIZES.global_span(), 1_775_616_000);
+        assert_eq!(HEAD_SIZES.total_outputs(), 185);
+        assert_eq!(HEAD_SIZES.global_span(), 1_827_840_000);
     }
 
     #[test]

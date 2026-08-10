@@ -147,7 +147,7 @@ function GameView({ mode }: { mode: 'play' | 'watch' }) {
             />
           )}
         </div>
-        <Trick state={s} />
+        <Trick state={s} humanSeats={game.humanSeats} />
         <Ambitions state={s} variant={game.variant} counts={game.ambitionCounts} />
         <Players state={s} humanSeats={game.humanSeats} actor={game.actor} />
         <Log log={game.log} />

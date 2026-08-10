@@ -44,12 +44,12 @@ pub struct SystemDef {
     pub adjacent: InlineVec<SystemId, 6>,
 }
 
-impl SystemDef {
-    /// The printed label: "3" for a gate, "3.1" for a planet (1-based).
-    pub fn label(&self) -> String {
+/// The printed label: "3" for a gate, "3.1" for a planet (1-based).
+impl core::fmt::Display for SystemDef {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self.kind {
-            SystemKind::Gate => format!("{}", self.cluster + 1),
-            SystemKind::Planet => format!("{}.{}", self.cluster + 1, self.slot),
+            SystemKind::Gate => write!(f, "{}", self.cluster + 1),
+            SystemKind::Planet => write!(f, "{}.{}", self.cluster + 1, self.slot),
         }
     }
 }

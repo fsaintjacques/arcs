@@ -10,6 +10,7 @@
 //! `number - 1`. `power` is the engine-readable form of a Guild ability; the
 //! verbatim rules text stays on the TS side (UI-only).
 
+use crate::action::CardActionName;
 use crate::types::{ActionKind, CourtCardId, ResourceType, Suit};
 
 // ---------------------------------------------------------------------------
@@ -67,7 +68,9 @@ pub enum NewActionEffect {
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct NewAction {
-    pub name: &'static str,
+    /// The printed name, as the enum the action vocabulary uses — enumeration
+    /// compares variants rather than re-parsing a string.
+    pub name: CardActionName,
     /// The standard action whose pip pays for it.
     pub replaces: ActionKind,
     pub effect: NewActionEffect,
@@ -263,7 +266,7 @@ pub static COURT_DECK: [CourtCardDef; COURT_CARD_COUNT] = {
             CardPower {
                 prelude: Some(PreludeAbility::FillSlots { resource: M }),
                 new_actions: &[NewAction {
-                    name: "Manufacture",
+                    name: CardActionName::Manufacture,
                     replaces: ActionKind::Build,
                     effect: NewActionEffect::GainResource { resource: M },
                 }],
@@ -348,7 +351,7 @@ pub static COURT_DECK: [CourtCardDef; COURT_CARD_COUNT] = {
             CardPower {
                 prelude: Some(PreludeAbility::FillSlots { resource: F }),
                 new_actions: &[NewAction {
-                    name: "Synthesize",
+                    name: CardActionName::Synthesize,
                     replaces: ActionKind::Build,
                     effect: NewActionEffect::GainResource { resource: F },
                 }],
@@ -394,12 +397,12 @@ pub static COURT_DECK: [CourtCardDef; COURT_CARD_COUNT] = {
                 prelude: PLACE_3_SHIPS,
                 new_actions: &[
                     NewAction {
-                        name: "Pressgang",
+                        name: CardActionName::Pressgang,
                         replaces: ActionKind::Build,
                         effect: NewActionEffect::Pressgang,
                     },
                     NewAction {
-                        name: "Execute",
+                        name: CardActionName::Execute,
                         replaces: ActionKind::Influence,
                         effect: NewActionEffect::Execute,
                     },
@@ -426,7 +429,7 @@ pub static COURT_DECK: [CourtCardDef; COURT_CARD_COUNT] = {
             CardPower {
                 prelude: PLACE_3_SHIPS,
                 new_actions: &[NewAction {
-                    name: "Abduct",
+                    name: CardActionName::Abduct,
                     replaces: ActionKind::Battle,
                     effect: NewActionEffect::Abduct,
                 }],
@@ -521,7 +524,7 @@ pub static COURT_DECK: [CourtCardDef; COURT_CARD_COUNT] = {
                     resources: &[M, F, W],
                 }),
                 new_actions: &[NewAction {
-                    name: "Trade",
+                    name: CardActionName::Trade,
                     replaces: ActionKind::Tax,
                     effect: NewActionEffect::Trade,
                 }],

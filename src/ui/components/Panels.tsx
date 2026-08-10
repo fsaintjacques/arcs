@@ -175,7 +175,7 @@ export function Players({
   );
 }
 
-export function Trick({ state }: { state: GameState }) {
+export function Trick({ state, humanSeats }: { state: GameState; humanSeats: number[] }) {
   const lead = state.round.lead;
   const zeroed = state.round.leadNumber === 0;
   return (
@@ -185,7 +185,12 @@ export function Trick({ state }: { state: GameState }) {
       <div className="played">
         {state.round.played.map((c, i) => {
           const isLead = lead !== null && c === lead;
-          const hidden = c.faceDown && c.card < 0;
+          // Copies and seizes go down face down and are never turned back up.
+          // The panel draws the true state, not an observation, so it has to
+          // redact them itself: only the player who played one may see it.
+          const hidden = c.faceDown && (c.card < 0 || !humanSeats.includes(c.player));
+          // A face-down play that is not a Copy is the card burned to seize.
+          const mode = c.faceDown && c.mode !== 'copy' ? 'seized' : c.mode;
           return (
             <figure key={i} className={`play${isLead ? ' play-lead' : ''}`}>
               {hidden ? (
@@ -195,7 +200,7 @@ export function Trick({ state }: { state: GameState }) {
               )}
               <figcaption style={{ color: PLAYER_COLORS[c.player] }}>
                 P{c.player}
-                <span className="dim"> {isLead ? 'lead' : c.mode}</span>
+                <span className="dim"> {isLead ? 'lead' : mode}</span>
               </figcaption>
             </figure>
           );

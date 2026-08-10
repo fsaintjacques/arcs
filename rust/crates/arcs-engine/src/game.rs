@@ -84,6 +84,12 @@ impl core::error::Error for RuleError {}
 
 /// The cheap half of the TS `getPending`: kind and player, no enumeration.
 pub fn get_pending(s: &GameState, _v: &VariantDef) -> Pending {
+    // An unplaced token belongs to whoever gained it and outranks everything:
+    // draining the queue immediately is what lets every other rule keep
+    // reading `resources` as the player's whole holding.
+    if let Some(player) = s.placement_owner() {
+        return Pending::Decision { player };
+    }
     // A pending Vox effect belongs to whoever secured the card, and outranks
     // the phase it interrupted.
     if let Some(pending) = s.pending_vox {
@@ -158,6 +164,13 @@ fn mulligan_player(s: &GameState) -> Player {
 /// of head targets survives an engine that enumerates differently tomorrow.
 pub fn legal_actions(s: &GameState, v: &VariantDef, out: &mut Vec<Action>) {
     out.clear();
+    if let Some(owner) = s.placement_owner() {
+        // At most 3 options: the distinct raid-cost tiers with a free slot.
+        for &tier in s.player(owner).placement_tiers().iter() {
+            out.push(Action::PlaceResource { tier });
+        }
+        return;
+    }
     if s.pending_vox.is_some() {
         vox_actions(s, out);
         return;
@@ -854,6 +867,18 @@ fn deal_chapter(s: &mut GameState, v: &VariantDef, rng: &mut impl Rng) {
 
 /// Apply one action, mutating in place (`applyActionMut` in game.ts).
 pub fn apply_action_mut(s: &mut GameState, v: &VariantDef, a: Action) -> Result<(), RuleError> {
+    // A gained token is placed before anything else can happen, so no rule
+    // ever reads a mat with tokens still in hand.
+    if let Some(owner) = s.placement_owner() {
+        let Action::PlaceResource { tier } = a else {
+            return Err(RuleError::Illegal("a resource placement is pending"));
+        };
+        return if s.player_mut(owner).place_queued(tier) {
+            Ok(())
+        } else {
+            Err(RuleError::Illegal("no free slot in that tier"))
+        };
+    }
     // A pending Vox effect is resolved before anything else can happen.
     if s.pending_vox.is_some() {
         return resolve_vox(s, v, a);
@@ -972,6 +997,9 @@ pub fn apply_action_mut(s: &mut GameState, v: &VariantDef, a: Action) -> Result<
             end_turn(s, v);
             Ok(())
         }
+        // Handled at the top of this function; a placement can only be
+        // pending there.
+        Action::PlaceResource { .. } => Err(RuleError::Illegal("no placement pending")),
         Action::Reinforce { system } => {
             if s.phase != Phase::Reinforce {
                 return Err(RuleError::WrongPhase);
@@ -1092,7 +1120,7 @@ pub fn apply_action_mut(s: &mut GameState, v: &VariantDef, a: Action) -> Result<
         }
         // A `vox` action is only meaningful while a Vox effect is pending,
         // which the top of this function already handles.
-        Action::Vox { .. } | Action::VoxSkip => Err(RuleError::Illegal("no Vox effect pending")),
+        Action::Vox(_) | Action::VoxSkip => Err(RuleError::Illegal("no Vox effect pending")),
     }
 }
 
@@ -1407,7 +1435,7 @@ fn perform_action(s: &mut GameState, v: &VariantDef, a: Action) -> Result<(), Ru
                 b.player()
             };
             if let Some(t) = v.systems[system.as_index()].planet_type {
-                s.take_from_supply(player, t);
+                s.take_from_supply(v, player, t);
             }
             if owner != player {
                 capture_agent(s, player, owner);
@@ -1510,9 +1538,9 @@ fn perform_action(s: &mut GameState, v: &VariantDef, a: Action) -> Result<(), Ru
             pay(s, ActionKind::Secure)?;
             secure_card(s, v, player, slot as usize, false)?;
         }
-        Action::CardAction { card, name, .. } => {
-            pay(s, card_action_cost(card, name)?)?;
-            apply_card_action(s, player, a)?;
+        Action::CardAction { card, choice } => {
+            pay(s, card_action_cost(card, choice.name())?)?;
+            apply_card_action(s, v, player, a)?;
         }
         Action::Battle {
             system,
@@ -2310,10 +2338,20 @@ pub fn new_game(
 
         // p5 step O: gain the resources matching the A and B planet types.
         for system in [start.a, start.b] {
-            if let Some(t) = v.systems[system.as_index()].planet_type
-                && supply[t.as_index()] > 0
-                && player_states[pi].gain_resource(t)
-            {
+            let Some(t) = v.systems[system.as_index()].planet_type else {
+                continue;
+            };
+            if supply[t.as_index()] == 0 {
+                continue;
+            }
+            // The two starting tokens are placed by their owner too, so the
+            // first decisions of the game are the openings' slot choices.
+            let took = if v.choose_placement {
+                player_states[pi].queue_resource(t)
+            } else {
+                player_states[pi].gain_resource(t)
+            };
+            if took {
                 supply[t.as_index()] -= 1;
             }
         }

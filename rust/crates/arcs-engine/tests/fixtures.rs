@@ -69,7 +69,7 @@ fn systems_match_ts() {
         assert_eq!(s.kind, kind);
         assert_eq!(s.planet_type, resource(&e["planetType"]));
         assert_eq!(s.building_slots, as_u8(&e["buildingSlots"]));
-        assert_eq!(s.label(), e["label"].as_str().unwrap());
+        assert_eq!(s.to_string(), e["label"].as_str().unwrap());
         let mut ours: Vec<u8> = s.adjacent.iter().map(|a| a.0).collect();
         ours.sort_unstable();
         assert_eq!(ours, sorted_ids(&e["adjacent"]), "system {}", s.id.0);

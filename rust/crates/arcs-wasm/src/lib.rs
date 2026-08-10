@@ -655,12 +655,7 @@ mod tests {
 
         let prelude = serde_json::to_value(ts_json::action_json(Action::CardPrelude {
             card: arcs_engine::CourtCardId(3),
-            system: None,
-            slot: None,
-            target: None,
-            take_card: None,
-            played: None,
-            cards: None,
+            choice: arcs_engine::PreludeChoice::Bare,
         }))
         .unwrap();
         let obj = prelude.as_object().unwrap();

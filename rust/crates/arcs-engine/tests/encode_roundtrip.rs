@@ -7,16 +7,11 @@
 
 use arcs_engine::action::{CardList, ResourceList};
 use arcs_engine::{
-    Action, ActionCardId, AmbitionId, BuildingKind, CardActionName, CourtCardId, FollowMode,
-    HitTarget, Player, ResourceType, SystemId, decode_action, encode_action,
+    Action, ActionCardId, AmbitionId, BuildingKind, CardActionChoice, CourtCardId, FollowMode,
+    HitTarget, Player, PreludeChoice, ResourceType, SystemId, VoxChoice, decode_action,
+    encode_action,
 };
 use std::collections::{HashMap, HashSet};
-
-fn opt_u8(values: &[u8]) -> Vec<Option<u8>> {
-    let mut out = vec![None];
-    out.extend(values.iter().map(|&v| Some(v)));
-    out
-}
 
 /// An exhaustive-in-shape sample: every variant, with every parameter swept
 /// through its edge values (absent / zero / mid / max) one axis at a time,
@@ -54,37 +49,44 @@ fn samples() -> Vec<Action> {
         out.push(Action::RaidResource { slot });
     }
 
-    let card_lists: Vec<Option<CardList>> = vec![
-        None,
-        Some(CardList::new()),
-        Some(CardList::from_slice(&[ActionCardId(1)])),
-        Some(CardList::from_slice(&[
-            ActionCardId(2),
-            ActionCardId(5),
-            ActionCardId(27),
-        ])),
+    let card_lists = [
+        CardList::new(),
+        CardList::from_slice(&[ActionCardId(1)]),
+        CardList::from_slice(&[ActionCardId(2), ActionCardId(5), ActionCardId(27)]),
     ];
     for card in 0..31u8 {
-        for system in opt_u8(&[0, 23]) {
-            for slot in opt_u8(&[0, 5]) {
-                for target in opt_u8(&[0, 3]) {
-                    for take_card in opt_u8(&[0, 30]) {
-                        for played in opt_u8(&[0, 27]) {
-                            for cards in &card_lists {
-                                out.push(Action::CardPrelude {
-                                    card: CourtCardId(card),
-                                    system: system.map(SystemId),
-                                    slot,
-                                    target: target.map(Player),
-                                    take_card: take_card.map(CourtCardId),
-                                    played: played.map(ActionCardId),
-                                    cards: *cards,
-                                });
-                            }
-                        }
-                    }
-                }
+        let card = CourtCardId(card);
+        let mut choices = vec![PreludeChoice::Bare];
+        for system in [0u8, 23] {
+            choices.push(PreludeChoice::System(SystemId(system)));
+        }
+        for target in [0u8, 3] {
+            for slot in [0u8, 5] {
+                choices.push(PreludeChoice::StealResource {
+                    target: Player(target),
+                    slot,
+                });
             }
+            for stolen in [0u8, 30] {
+                choices.push(PreludeChoice::StealCard {
+                    target: Player(target),
+                    card: CourtCardId(stolen),
+                });
+            }
+        }
+        for slot in [0u8, 5] {
+            choices.push(PreludeChoice::ConvertResource { slot });
+        }
+        for played in [0u8, 27] {
+            choices.push(PreludeChoice::Union {
+                played: ActionCardId(played),
+            });
+        }
+        for cards in card_lists {
+            choices.push(PreludeChoice::Recycle { cards });
+        }
+        for choice in choices {
+            out.push(Action::CardPrelude { card, choice });
         }
     }
     out.push(Action::BeginActions);
@@ -133,38 +135,45 @@ fn samples() -> Vec<Action> {
     }
     out.push(Action::CatapultStop);
 
-    let resource_lists: Vec<Option<ResourceList>> = vec![
-        None,
-        Some(ResourceList::new()),
-        Some(ResourceList::from_slice(&[ResourceType::Fuel])),
-        Some(ResourceList::from_slice(&[
+    let resource_lists = [
+        ResourceList::new(),
+        ResourceList::from_slice(&[ResourceType::Fuel]),
+        ResourceList::from_slice(&[
             ResourceType::Material,
             ResourceType::Material,
             ResourceType::Psionic,
-        ])),
+        ]),
     ];
-    for name in CardActionName::ALL {
-        for gain in &resource_lists {
-            for count in opt_u8(&[0, 4]) {
-                for slot in opt_u8(&[2]) {
-                    for system in opt_u8(&[9]) {
-                        for building in opt_u8(&[1]) {
-                            for give_slot in opt_u8(&[3]) {
-                                out.push(Action::CardAction {
-                                    card: CourtCardId(11),
-                                    name,
-                                    gain: *gain,
-                                    count,
-                                    slot,
-                                    system: system.map(SystemId),
-                                    building,
-                                    give_slot,
-                                });
-                            }
-                        }
-                    }
+    let mut card_action_choices = vec![CardActionChoice::Manufacture, CardActionChoice::Synthesize];
+    for gain in resource_lists {
+        card_action_choices.push(CardActionChoice::Pressgang { gain });
+    }
+    for count in [0u8, 4] {
+        card_action_choices.push(CardActionChoice::Execute { count });
+    }
+    for slot in [0u8, 3] {
+        card_action_choices.push(CardActionChoice::Abduct { slot });
+    }
+    for system in [0u8, 9] {
+        for building in [0u8, 1] {
+            for slot in [0u8, 2] {
+                for give_slot in [0u8, 3] {
+                    card_action_choices.push(CardActionChoice::Trade {
+                        system: SystemId(system),
+                        building,
+                        slot,
+                        give_slot,
+                    });
                 }
             }
+        }
+    }
+    for card in [0u8, 11, 30] {
+        for choice in &card_action_choices {
+            out.push(Action::CardAction {
+                card: CourtCardId(card),
+                choice: *choice,
+            });
         }
     }
 
@@ -220,33 +229,32 @@ fn samples() -> Vec<Action> {
     }
     out.push(Action::PeekSwapSkip);
 
-    // Vox: one axis at a time around an all-absent base, plus a dense corner.
-    out.push(vox(|_| {}));
+    // Vox: every choice shape, swept through its own edge values.
     for cluster in 0..6u8 {
-        out.push(vox(|p| p.cluster = Some(cluster)));
+        out.push(Action::Vox(VoxChoice::Cluster(cluster)));
     }
     for ambition in AmbitionId::ALL {
-        out.push(vox(|p| p.ambition = Some(ambition)));
+        out.push(Action::Vox(VoxChoice::Declare(ambition)));
     }
     for resource in ResourceType::ALL {
-        out.push(vox(|p| p.resource = Some(resource)));
+        out.push(Action::Vox(VoxChoice::Outrage(resource)));
     }
     for system in [0u8, 12, 23] {
-        for building in opt_u8(&[0, 1]) {
-            for seize in [None, Some(false), Some(true)] {
-                out.push(vox(|p| {
-                    p.system = Some(SystemId(system));
-                    p.building = building;
-                    p.seize = seize;
+        for building in [0u8, 1] {
+            for seize in [false, true] {
+                out.push(Action::Vox(VoxChoice::ReturnCity {
+                    system: SystemId(system),
+                    building,
+                    seize,
                 }));
             }
         }
     }
     for target in 0..4u8 {
         for card in [0u8, 30] {
-            out.push(vox(|p| {
-                p.target = Some(Player(target));
-                p.card = Some(CourtCardId(card));
+            out.push(Action::Vox(VoxChoice::Steal {
+                target: Player(target),
+                card: CourtCardId(card),
             }));
         }
     }
@@ -255,38 +263,14 @@ fn samples() -> Vec<Action> {
     out
 }
 
-#[derive(Default)]
-struct VoxParts {
-    cluster: Option<u8>,
-    ambition: Option<AmbitionId>,
-    resource: Option<ResourceType>,
-    system: Option<SystemId>,
-    building: Option<u8>,
-    seize: Option<bool>,
-    target: Option<Player>,
-    card: Option<CourtCardId>,
-}
-
-/// Build a Vox action from an all-absent base with overrides.
-fn vox(build: impl FnOnce(&mut VoxParts)) -> Action {
-    let mut p = VoxParts::default();
-    build(&mut p);
-    Action::Vox {
-        cluster: p.cluster,
-        ambition: p.ambition,
-        resource: p.resource,
-        system: p.system,
-        building: p.building,
-        seize: p.seize,
-        target: p.target,
-        card: p.card,
-    }
-}
-
 #[test]
 fn encode_decode_round_trips() {
     let all = samples();
-    assert!(all.len() > 10_000, "sample sweep shrank to {}", all.len());
+    // The sweep used to be a full product over the optional-field bags —
+    // ~30k samples, most of them field combinations no card could ever ask
+    // for. The choice enums make those unrepresentable, so what is left is
+    // the legal shapes: fewer samples, same coverage of the encoding.
+    assert!(all.len() > 3_000, "sample sweep shrank to {}", all.len());
     for a in &all {
         let key = encode_action(*a);
         let back = decode_action(&key);
@@ -323,6 +307,12 @@ fn junk_keys_do_not_decode() {
         "da:emperor",
         "cp:1",
         "vx:",
+        // A Vox bag naming no choice: `vs` is how a player declines.
+        "vx:::::::",
+        // Choices whose own parameters are missing.
+        "ca:11:Pressgang::::::",
+        "ca:11:Execute::::::",
+        "ca:22:Trade::::::",
         "bt:1:2:3/4",
         "bt:1:2:3/4/5/6",
         "pi:0",
@@ -332,4 +322,16 @@ fn junk_keys_do_not_decode() {
     ] {
         assert_eq!(decode_action(junk), None, "junk {junk:?} decoded");
     }
+}
+
+/// The nested choice enums must stay small: `Action` is copied into every
+/// search node, and the flat parameter bags were what pushed it to 24 bytes.
+#[test]
+fn action_stays_small() {
+    assert!(
+        size_of::<Action>() <= 16,
+        "Action is {} bytes",
+        size_of::<Action>()
+    );
+    println!("Action = {} bytes", size_of::<Action>());
 }

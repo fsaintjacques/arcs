@@ -12,27 +12,13 @@ use arcs_engine::game::{apply_action_mut, get_pending, legal_actions, resolve_ch
 use arcs_engine::powers::{cartel_icons, discard_guild_card, gain_guild_card};
 use arcs_engine::state::{ActionKindSet, Building, CourtSlot, TrophyKind};
 use arcs_engine::{
-    Action, ActionKind, AmbitionId, BuildingKind, CardActionName, CourtCardId, Pending, Phase,
-    Player, ResourceType, SystemId, ambition_count, ambition_count_with, survives_outrage,
-    weapon_icons,
+    Action, ActionKind, AmbitionId, BuildingKind, CardActionChoice, CourtCardId, Pending, Phase,
+    Player, PreludeChoice, ResourceType, SystemId, VoxChoice, ambition_count, ambition_count_with,
+    survives_outrage, weapon_icons,
 };
 use common::*;
 
 use ResourceType::{Fuel, Material, Relic, Weapon};
-
-/// A `vox` action with only the named fields set — the TS object literals.
-fn vox() -> Action {
-    Action::Vox {
-        cluster: None,
-        ambition: None,
-        resource: None,
-        system: None,
-        building: None,
-        seize: None,
-        target: None,
-        card: None,
-    }
-}
 
 fn grant_free_secure(f: &mut Fixture) {
     let mut turn = f.s.turn.expect("a turn in progress");
@@ -315,10 +301,15 @@ fn sworn_guardians_is_the_only_thing_a_raider_may_take() {
 fn mining_interest_adds_manufacture_gain_1_material() {
     let (mut f, player) = turn_holding(341, &["Mining Interest"], CONSTRUCTION, 2);
     apply(&mut f, Action::BeginActions);
-    let act = find(
-        &actions(&f),
-        |a| matches!(a, Action::CardAction { name, .. } if *name == CardActionName::Manufacture),
-    );
+    let act = find(&actions(&f), |a| {
+        matches!(
+            a,
+            Action::CardAction {
+                choice: CardActionChoice::Manufacture,
+                ..
+            }
+        )
+    });
 
     let count_material = |f: &Fixture| {
         f.s.player(player)
@@ -343,9 +334,13 @@ fn mining_interest_adds_manufacture_gain_1_material() {
 fn card_actions_are_not_offered_from_a_suit_that_cannot_pay() {
     let (mut f, _) = turn_holding(342, &["Mining Interest"], AGGRESSION, 2); // no Build pips
     apply(&mut f, Action::BeginActions);
-    assert!(!actions(&f).iter().any(
-        |a| matches!(a, Action::CardAction { name, .. } if *name == CardActionName::Manufacture)
-    ));
+    assert!(!actions(&f).iter().any(|a| matches!(
+        a,
+        Action::CardAction {
+            choice: CardActionChoice::Manufacture,
+            ..
+        }
+    )));
 }
 
 // ---------------------------------------------------------------------------
@@ -400,8 +395,10 @@ fn silver_tongues_steals_a_named_resource_from_a_named_rival() {
     let act = find(&actions(&f), |a| {
         matches!(
             a,
-            Action::CardPrelude { card, target, .. }
-                if *card == court("Silver-Tongues") && *target == Some(victim)
+            Action::CardPrelude {
+                card,
+                choice: PreludeChoice::StealResource { target, .. },
+            } if *card == court("Silver-Tongues") && *target == victim
         )
     });
     apply(&mut f, act);
@@ -479,7 +476,10 @@ fn place_3_ships_only_offers_systems_you_control() {
     let offered: Vec<SystemId> = actions(&f)
         .iter()
         .filter_map(|a| match a {
-            Action::CardPrelude { card, system, .. } if *card == court("Loyal Marines") => *system,
+            Action::CardPrelude {
+                card,
+                choice: PreludeChoice::System(system),
+            } if *card == court("Loyal Marines") => Some(*system),
             _ => None,
         })
         .collect();
@@ -703,7 +703,10 @@ fn a_union_only_attaches_to_its_own_suit_and_never_face_down() {
     let targets: Vec<_> = actions(&g)
         .iter()
         .filter_map(|a| match a {
-            Action::CardPrelude { played, .. } => *played,
+            Action::CardPrelude {
+                choice: PreludeChoice::Union { played },
+                ..
+            } => Some(*played),
             _ => None,
         })
         .collect();
@@ -731,14 +734,23 @@ fn pressgang_returns_captives_for_freely_chosen_resources() {
 
     let offers: Vec<Action> = actions(&f)
         .into_iter()
-        .filter(
-            |a| matches!(a, Action::CardAction { name, .. } if *name == CardActionName::Pressgang),
-        )
+        .filter(|a| {
+            matches!(
+                a,
+                Action::CardAction {
+                    choice: CardActionChoice::Pressgang { .. },
+                    ..
+                }
+            )
+        })
         .collect();
     // Both "one captive" and "two captives" options, and mixed resource
     // picks.
     let gain_of = |a: &Action| match a {
-        Action::CardAction { gain, .. } => gain.unwrap(),
+        Action::CardAction {
+            choice: CardActionChoice::Pressgang { gain },
+            ..
+        } => *gain,
         _ => unreachable!(),
     };
     assert!(offers.iter().any(|a| gain_of(a).len() == 1));
@@ -772,9 +784,13 @@ fn pressgang_is_capped_by_empty_resource_slots() {
         p.resources = [Some(Fuel); 6]; // no room at all
     }
     apply(&mut f, Action::BeginActions);
-    assert!(!actions(&f).iter().any(
-        |a| matches!(a, Action::CardAction { name, .. } if *name == CardActionName::Pressgang)
-    ));
+    assert!(!actions(&f).iter().any(|a| matches!(
+        a,
+        Action::CardAction {
+            choice: CardActionChoice::Pressgang { .. },
+            ..
+        }
+    )));
 }
 
 // TS: "Execute moves Captives to Trophies, swapping Tyrant count for
@@ -788,8 +804,10 @@ fn execute_moves_captives_to_trophies_tyrant_becomes_warlord() {
     let act = find(&actions(&f), |a| {
         matches!(
             a,
-            Action::CardAction { name, count, .. }
-                if *name == CardActionName::Execute && *count == Some(2)
+            Action::CardAction {
+                choice: CardActionChoice::Execute { count: 2 },
+                ..
+            }
         )
     });
     apply(&mut f, act);
@@ -852,16 +870,27 @@ fn abduct_takes_agents_from_a_card_with_fewer_than_your_weapon_icons() {
 
     let offers: Vec<Action> = actions(&f)
         .into_iter()
-        .filter(|a| matches!(a, Action::CardAction { name, .. } if *name == CardActionName::Abduct))
+        .filter(|a| {
+            matches!(
+                a,
+                Action::CardAction {
+                    choice: CardActionChoice::Abduct { .. },
+                    ..
+                }
+            )
+        })
         .collect();
-    let slots: Vec<Option<u8>> = offers
+    let slots: Vec<u8> = offers
         .iter()
         .map(|a| match a {
-            Action::CardAction { slot, .. } => *slot,
+            Action::CardAction {
+                choice: CardActionChoice::Abduct { slot },
+                ..
+            } => *slot,
             _ => unreachable!(),
         })
         .collect();
-    assert_eq!(slots, vec![Some(0)]);
+    assert_eq!(slots, vec![0]);
 
     apply(&mut f, offers[0]);
     assert_eq!(f.s.player(player).captives[rival.as_index()], 2);
@@ -911,10 +940,15 @@ fn trade_swaps_the_city_type_for_one_the_rival_lacks() {
     f.s.player_states[player.as_index()].resources[0] = Some(give);
 
     apply(&mut f, Action::BeginActions);
-    let act = find(
-        &actions(&f),
-        |a| matches!(a, Action::CardAction { name, .. } if *name == CardActionName::Trade),
-    );
+    let act = find(&actions(&f), |a| {
+        matches!(
+            a,
+            Action::CardAction {
+                choice: CardActionChoice::Trade { .. },
+                ..
+            }
+        )
+    });
     apply(&mut f, act);
 
     let mine = f.s.player(player).resources;
@@ -935,11 +969,13 @@ fn trade_is_not_offered_when_the_rival_holds_everything_you_could_give() {
     // The only thing I hold is what they hold.
     f.s.player_states[player.as_index()].resources[0] = Some(planet_type);
     apply(&mut f, Action::BeginActions);
-    assert!(
-        !actions(&f).iter().any(
-            |a| matches!(a, Action::CardAction { name, .. } if *name == CardActionName::Trade)
-        )
-    );
+    assert!(!actions(&f).iter().any(|a| matches!(
+        a,
+        Action::CardAction {
+            choice: CardActionChoice::Trade { .. },
+            ..
+        }
+    )));
 }
 
 // ---------------------------------------------------------------------------
@@ -1299,12 +1335,13 @@ fn farseers_prelude_swaps_n_cards_for_n_plus_1_from_the_discard_bottom() {
     let act = find(&actions(&f), |a| {
         matches!(
             a,
-            Action::CardPrelude { card, cards: Some(cards), .. }
+            Action::CardPrelude { card, choice: PreludeChoice::Recycle { cards } }
                 if *card == court("Farseers") && cards.len() == 1
         )
     });
     let Action::CardPrelude {
-        cards: Some(cards), ..
+        choice: PreludeChoice::Recycle { cards },
+        ..
     } = act
     else {
         unreachable!()
@@ -1353,12 +1390,8 @@ fn mass_uprising_places_a_ship_in_every_system_of_a_cluster() {
     // It is mandatory, so declining is not offered while a cluster is legal.
     assert!(!actions(&f).iter().any(|a| matches!(a, Action::VoxSkip)));
 
-    let act = find(&actions(&f), |a| matches!(a, Action::Vox { .. }));
-    let Action::Vox {
-        cluster: Some(cluster),
-        ..
-    } = act
-    else {
+    let act = find(&actions(&f), |a| matches!(a, Action::Vox(_)));
+    let Action::Vox(VoxChoice::Cluster(cluster)) = act else {
         panic!("expected a cluster choice")
     };
     let before: Vec<u8> =
@@ -1385,7 +1418,7 @@ fn populist_demands_declares_any_ambition() {
     let offered: Vec<AmbitionId> = actions(&f)
         .iter()
         .filter_map(|a| match a {
-            Action::Vox { ambition, .. } => *ambition,
+            Action::Vox(VoxChoice::Declare(ambition)) => Some(*ambition),
             _ => None,
         })
         .collect();
@@ -1400,11 +1433,7 @@ fn populist_demands_declares_any_ambition() {
         ]
     );
 
-    let mut act = vox();
-    if let Action::Vox { ambition, .. } = &mut act {
-        *ambition = Some(AmbitionId::Empath);
-    }
-    apply(&mut f, act);
+    apply(&mut f, Action::Vox(VoxChoice::Declare(AmbitionId::Empath)));
     assert_eq!(f.s.declared[AmbitionId::Empath.as_index()].len(), 1);
     assert!(f.s.pending_vox.is_none());
 }
@@ -1417,10 +1446,7 @@ fn outrage_spreads_outrages_every_player_including_the_securer() {
         p.resources = [None; 6];
         p.resources[0] = Some(Relic);
     }
-    let mut act = vox();
-    if let Action::Vox { resource, .. } = &mut act {
-        *resource = Some(Relic);
-    }
+    let act = Action::Vox(VoxChoice::Outrage(Relic));
     apply(&mut f, act);
 
     for p in 0..3 {
@@ -1455,12 +1481,10 @@ fn song_of_freedom_returns_a_city_and_goes_back_in_the_deck() {
             .expect("a city on the map");
         f.s.systems[any].fresh[player.as_index()] = 9;
     }
-    let act = find(&actions(&f), |a| matches!(a, Action::Vox { .. }));
-    let Action::Vox {
-        system: Some(system),
-        building: Some(building),
-        ..
-    } = act
+    let act = find(&actions(&f), |a| matches!(a, Action::Vox(_)));
+    let Action::Vox(VoxChoice::ReturnCity {
+        system, building, ..
+    }) = act
     else {
         panic!("expected a city choice")
     };
@@ -1483,12 +1507,13 @@ fn guild_struggle_steals_a_card_and_recycles_the_guild_discards() {
         .into_iter()
         .collect();
 
-    let mut act = vox();
-    if let Action::Vox { target, card, .. } = &mut act {
-        *target = Some(rival);
-        *card = Some(court("Relic Fence"));
-    }
-    apply(&mut f, act);
+    apply(
+        &mut f,
+        Action::Vox(VoxChoice::Steal {
+            target: rival,
+            card: court("Relic Fence"),
+        }),
+    );
 
     assert!(
         f.s.player(player)
@@ -1535,7 +1560,7 @@ fn a_pending_vox_card_holds_the_turn_open() {
     assert!(f.s.pending_vox.is_some());
     assert_eq!(actor(&f), player);
     for a in actions(&f) {
-        assert!(matches!(a, Action::Vox { .. } | Action::VoxSkip));
+        assert!(matches!(a, Action::Vox(_) | Action::VoxSkip));
     }
 
     apply(&mut f, Action::VoxSkip);

@@ -24,7 +24,9 @@ use crate::court::COURT_CARD_COUNT;
 use crate::dice::DICE_PER_TYPE;
 use crate::inline_vec::InlineVec;
 use crate::map::SYSTEM_COUNT;
-use crate::player_board::{AGENTS, MAX_RESOURCE_SLOTS, SHIPS, STARPORTS, open_resource_slots};
+use crate::player_board::{
+    AGENTS, MAX_RESOURCE_SLOTS, SHIPS, STARPORTS, open_resource_slots, raid_cost,
+};
 use crate::setup::{MAX_PLAYERS, VariantDef};
 use crate::types::{
     ActionCardId, ActionKind, AmbitionId, BuildingKind, ByDieType, ByResource, CourtCardId, Phase,
@@ -224,6 +226,11 @@ pub struct PlayerState {
     /// uncovered.
     pub cities_used: u8,
     pub hand: InlineVec<ActionCardId, 12>,
+    /// Tokens gained but not yet placed, oldest first (p17 slot choice).
+    ///
+    /// Always empty unless [`VariantDef::choose_placement`] is on, and always
+    /// drained before any other decision — see `get_pending`.
+    pub pending_resources: InlineVec<ResourceType, MAX_RESOURCE_SLOTS>,
     /// Leaders & Lore: this seat's leader. Always `None` in the base game.
     pub leader: Option<LeaderId>,
     /// Leaders & Lore: held lore cards. Always empty in the base game.
@@ -245,6 +252,7 @@ impl PlayerState {
             starports_supply: STARPORTS,
             cities_used: 0,
             hand: InlineVec::new(),
+            pending_resources: InlineVec::new(),
             leader: None,
             lore: InlineVec::new(),
         }
@@ -260,14 +268,84 @@ impl PlayerState {
     /// the player has no room — "you must discard resources you cannot
     /// hold" (p17). (`gainResource` in playerBoard.ts.)
     pub fn gain_resource(&mut self, r: ResourceType) -> bool {
+        match self.free_slot() {
+            Some(slot) => {
+                self.resources[slot] = Some(r);
+                true
+            }
+            None => false,
+        }
+    }
+
+    /// The leftmost free open slot, if any.
+    fn free_slot(&self) -> Option<usize> {
         let open = self.open_resource_slots();
-        for slot in self.resources.iter_mut().take(open) {
-            if slot.is_none() {
-                *slot = Some(r);
-                return true;
+        (0..open).find(|&i| self.resources[i].is_none())
+    }
+
+    /// Take a resource, deferring *which* slot it lands in to the holder
+    /// (p17: "when you gain a resource you may rearrange slots").
+    ///
+    /// The token is queued rather than placed, so a caller's control flow is
+    /// unchanged — the answer to "is there room?" does not depend on which
+    /// slot is chosen, only on how many are free. `false` still means the
+    /// token cannot be held and must be discarded.
+    pub fn queue_resource(&mut self, r: ResourceType) -> bool {
+        if self.free_slots() == 0 {
+            return false;
+        }
+        self.pending_resources.push(r);
+        true
+    }
+
+    /// Open slots that are neither occupied nor already spoken for by a
+    /// queued token.
+    pub fn free_slots(&self) -> usize {
+        let open = self.open_resource_slots();
+        let occupied = self.resources.iter().take(open).flatten().count();
+        open - occupied - self.pending_resources.len().min(open - occupied)
+    }
+
+    /// The distinct raid-cost tiers with a free slot — the placement options
+    /// for the next queued token.
+    ///
+    /// Tiers, not slots: [`crate::player_board::RAID_COSTS`] is `[1,1,2,2,3,3]`,
+    /// and the slot index has no effect on anything except its raid cost, so
+    /// two free slots of equal cost are the same choice. That quotient is what
+    /// keeps the branching factor at most 3 instead of 6 (and far below the
+    /// n² of a swap encoding or the n! of a permutation one).
+    pub fn placement_tiers(&self) -> InlineVec<u8, 3> {
+        let open = self.open_resource_slots();
+        let mut out = InlineVec::new();
+        for i in 0..open {
+            if self.resources[i].is_none() {
+                let tier = raid_cost(i);
+                if !out.contains(&tier) {
+                    out.push(tier);
+                }
             }
         }
-        false
+        out
+    }
+
+    /// Place the next queued token in the cheapest free slot of `tier`.
+    ///
+    /// Within a tier the slot is arbitrary — every free slot of the same cost
+    /// is indistinguishable — so the lowest index is the canonical
+    /// representative.
+    /// Returns whether it placed: `false` when nothing is queued, or when the
+    /// tier has no free slot.
+    #[must_use]
+    pub fn place_queued(&mut self, tier: u8) -> bool {
+        if self.pending_resources.is_empty() {
+            return false;
+        }
+        let open = self.open_resource_slots();
+        let slot = (0..open).find(|&i| self.resources[i].is_none() && raid_cost(i) == tier);
+        let Some(slot) = slot else { return false };
+        let r = self.pending_resources.remove(0);
+        self.resources[slot] = Some(r);
+        true
     }
 
     /// Discard resources sitting in slots that a returning city has covered,
@@ -646,15 +724,36 @@ impl GameState {
     }
 
     /// Take a resource from the general supply into a player's slots.
-    pub fn take_from_supply(&mut self, player: Player, r: ResourceType) -> bool {
+    pub fn take_from_supply(&mut self, v: &VariantDef, player: Player, r: ResourceType) -> bool {
         if self.supply[r.as_index()] == 0 {
             return false;
         }
-        if !self.player_mut(player).gain_resource(r) {
+        if !self.gain_into(v, player, r) {
             return false;
         }
         self.supply[r.as_index()] -= 1;
         true
+    }
+
+    /// Give a token to a player. Queued for the holder to place when the
+    /// variant models the p17 slot choice, filled leftmost otherwise.
+    ///
+    /// Either way `false` means "no room" — the answer does not depend on
+    /// *which* slot is chosen, so every caller's control flow is identical
+    /// under both settings.
+    pub fn gain_into(&mut self, v: &VariantDef, player: Player, r: ResourceType) -> bool {
+        if v.choose_placement {
+            self.player_mut(player).queue_resource(r)
+        } else {
+            self.player_mut(player).gain_resource(r)
+        }
+    }
+
+    /// The seat owing a placement decision, if any.
+    pub fn placement_owner(&self) -> Option<Player> {
+        (0..self.players)
+            .map(Player)
+            .find(|&p| !self.player(p).pending_resources.is_empty())
     }
 
     /// Return a resource token to the general supply — or onto the Cartel

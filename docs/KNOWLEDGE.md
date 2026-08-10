@@ -83,9 +83,12 @@ the lead card, so its number becomes 0 and *any* card of the lead suit
 surpasses it — "in declaring an Ambition, the value of your card plummets to
 zero. Now everyone can Surpass you" ([The Giant
 Brain](https://giantbrain.co.uk/2025/07/21/arcs-de-triomphe/)). Declaring
-Tycoon with a 2 costs almost nothing; declaring Empath with a 6 spends the
-best initiative card in the suit and hands two rivals an easy route to the
-marker ([BGG
+Tycoon with a 2 costs almost nothing — r/Arcs puts it exactly this way, "the
+downsides to declaring an ambition already exist for rank 2 cards: therefore
+there is no downside to declaring the tycoon ambition"
+([r/Arcs](https://www.reddit.com/r/Arcs/comments/1ibnnfj/initial_setup_cards/m9nha6z/))
+— while declaring Empath with a 6 spends the best initiative card in the suit
+and hands two rivals an easy route to the marker ([BGG
 3426912](https://boardgamegeek.com/thread/3426912/are-farseers-really-powerful-or-was-i-really-lucky)).
 The two cards that suppress the zero marker — **Secret Order** (Keeper and
 Empath) and **Galactic Bards** (on a Surpass or Pivot) — therefore delete
@@ -155,6 +158,20 @@ that had never seen it, and it raises the stakes on a transitive matrix: if K2
 comes back transitive, either this engine differs from the printed game or the
 bots are too weak to express the cycle.
 
+The cleanest reason the archetypes should differ at all comes from r/Arcs, as
+a taxonomy of how each box can be contested: "only 1 of the ambitions (Tycoon)
+offers enough resources that players can reasonably compete for it without
+interacting with each other. 2 of the ambitions (Tyrant and Warlord) require
+confrontation in order to score, and the other 2 (Keeper and Empath) are
+limited enough that it's very likely that the only way to compete for them is
+to raid other players"
+([r/Arcs](https://www.reddit.com/r/Arcs/comments/1eqs2r5/a_common_complaint_that_makes_no_sense_to_me/lhu69p0/)).
+Read against the archetype table that is a prediction about *which* archetypes
+can coexist: `greed` is the only one that never has to touch anybody, `aggro`
+cannot score without contact, and `turtle` is safe only until somebody decides
+to raid it. The engine agrees on the arithmetic — Material and Fuel sit on
+eight planets between them, Relic and Psionic on three each.
+
 The forum is much less sure that `balancer` is real — see the contradictions
 table at the end — and it strongly supports the pacing half of `sniper` while
 supporting none of its passivity.
@@ -206,11 +223,21 @@ explicit dissent from 3-player groups.*
   overflow hits can't cause outrage" ([BGG
   3444570](https://boardgamegeek.com/thread/3444570/piracy-101)). Prediction:
   `aggro` beats `greed` through raid volume, and the matrix cell should come
-  with a high raided-items count and a *low* cities-destroyed count. The
-  3-player dissent is worth logging as a competing prediction: "having all
+  with a high raided-items count and a *low* cities-destroyed count. Two
+  dissents are worth logging as competing predictions. From BGG: "having all
   five cities out is a tenuous position at best — you only have fifteen ships,
   so it is hard to keep them from being raided and sacked" ([BGG
   3223590](https://boardgamegeek.com/thread/3223590/a-low-key-guide-to-winning-base-arcs)).
+  From r/Arcs, aimed at the idea of a committed builder at all: "the name of
+  the game in Arcs is flexibility and pivoting, not engine building or
+  long-term planning/strategy"
+  ([r/Arcs](https://www.reddit.com/r/Arcs/comments/1i1ytdx/mitigating_randomness/m7avlp1/)),
+  which Meeple Mountain states as a positive rule — "being well-positioned to
+  do the perfect thing isn't how you win Arcs; being well-positioned to do the
+  most things is" ([Meeple
+  Mountain](https://www.meeplemountain.com/reviews/arcs/)). If that is right,
+  `greed` should lose to everything, and `eval.ts`'s `handActionable` term is
+  badly under-weighted.
 - **Signature** — two or more cities standing by the end of chapter 2; open
   resource slots high and mostly full; ambition counts concentrated in Tycoon;
   trophies and captives near zero; fewer than one battle initiated per
@@ -239,14 +266,18 @@ and with a direct warning against committing to the line at all.*
   repeatable ambition-currency printer in the deck. Loyal Keepers and Loyal
   Empaths survive Outrage and let any resource be spent as their type. Secret
   Order removes the zero marker from exactly the two ambitions this archetype
-  wants to declare. And the suits do work on their own: the five Relic-suited
-  Guild cards (Loyal Keepers, Sworn Guardians, Elder Broker, Relic Fence,
-  Galactic Bards) are each a Keeper icon, and the five Psionic-suited ones
-  (Loyal Empaths, Lattice Spies, Farseers, Secret Order, Silver-Tongues) are
-  each an Empath icon — so a Court hoard *is* the ambition count. Relic and
-  Psionic appear on three planets each against four Material, four Fuel and
-  four Weapon, which is why the forum calls these the "monopoly" ambitions:
-  one defensible planet is close to a lock ([BGG
+  wants to declare. Declaring them has a second, quieter effect r/Arcs names:
+  it freezes the rivals' tokens, because spending a Relic for a Secure or a
+  Psionic for a lead action now costs them the box they are contesting
+  ([r/Arcs](https://www.reddit.com/r/Arcs/comments/1hym0x0/hesitation_to_declare_ambitions/m6kitbq/)).
+  And the suits do work on their own: the five Relic-suited Guild cards (Loyal
+  Keepers, Sworn Guardians, Elder Broker, Relic Fence, Galactic Bards) are
+  each a Keeper icon, and the five Psionic-suited ones (Loyal Empaths, Lattice
+  Spies, Farseers, Secret Order, Silver-Tongues) are each an Empath icon — so
+  a Court hoard *is* the ambition count. Relic and Psionic appear on three
+  planets each against four Material, four Fuel and four Weapon, which is why
+  the forum calls these the "monopoly" ambitions: one defensible planet is
+  close to a lock ([BGG
   3423765](https://boardgamegeek.com/thread/3423765/article/45348155#45348155)).
 - **Counterplay** — `greed` outruns it, per the seed: a Keeper lead of four
   icons scores the same as a lead of fourteen, so the turtle's surplus is dead
@@ -254,9 +285,12 @@ and with a direct warning against committing to the line at all.*
   answers, all of them matrix-checkable. **Raid Sworn Guardians itself** — it
   is the one card a raider can still take from a theft-immune player
   (`theftImmunityCard`) and its raid cost is **1**, the cheapest in the deck;
-  once buried, the rest of the hoard is ordinary loot, and the forum knows the
-  same raid-cost ladder (relic keys run 3/2/2/1 where psionic, material and
-  fuel run 3/2/2/2/2, [BGG
+  once buried, the rest of the hoard is ordinary loot — and the cheap slots go
+  first, since the engine's resource raid costs run 1, 1, 2, 2, 3, 3 left to
+  right and "whatever is in their 1-key slots is very easy to raid and steal"
+  ([r/Arcs](https://www.reddit.com/r/Arcs/comments/1eadqfb/how_are_we_feeling_about_base_arcs/lem6u8w/)).
+  The forum knows the same ladder for the cards themselves (relic keys run
+  3/2/2/1 where psionic, material and fuel run 3/2/2/2/2, [BGG
   3316877](https://boardgamegeek.com/thread/3316877/the-three-arcs-types-of-strategies-a-working-hypot)).
   **Outrage Spreads** naming Relic or Psionic makes every player discard both
   the tokens and the same-suited Guild cards, with only the Loyal card
@@ -264,9 +298,16 @@ and with a direct warning against committing to the line at all.*
   zero relics* this way ([BGG
   3423765](https://boardgamegeek.com/thread/3423765/article/45348155#45348155)).
   **Tie the box**, which costs one icon and denies both first place and the
-  +2/+5 bonus. And a prior worth respecting: "guild monopolies are not a
-  winning beginner strategy" — the forum's advice is to exploit a monopoly
-  that falls in your lap rather than commit to one ([BGG
+  +2/+5 bonus. And two priors worth respecting. Keeper and Empath being
+  under-contested is reported as a *group habit* rather than as correct play —
+  r/Arcs has a thread titled "Keeper and Empath underused by my group", and a
+  two-player regular reports "I don't think either of us have ever declared
+  Empath as of yet"
+  ([r/Arcs](https://www.reddit.com/r/Arcs/comments/1igxo0o/keeper_and_empath_underused_by_my_group/maxswtd/))
+  — so the archetype may be exploiting weak opponents rather than a real hole,
+  which is exactly the failure mode the league exists to catch. And "guild
+  monopolies are not a winning beginner strategy" — the forum's advice is to
+  exploit a monopoly that falls in your lap rather than commit to one ([BGG
   3394075](https://boardgamegeek.com/thread/3394075/guild-monopolies-are-not-a-winning-beginner-strate)).
 - **Signature** — ships never leave the home cluster; battles initiated zero;
   three or more Guild cards sharing one suit; Copy chosen far more often than
@@ -290,9 +331,15 @@ than a real strategy.*
   ambition, so it is otherwise the deadest resource on the board and `eval.ts`
   prices it lowest at 0.5); a contestable **gate** — gates have zero building
   slots, so a gate fight is a pure ship fight and therefore a pure Trophy
-  fight. The forum adds a chapter gate: avoid all-out war in chapters 1–2,
-  when there are fewer ships, the trophies are cheap for the opponent, and the
-  feud outlives the chapter ([BGG
+  fight. The strongest general case for the archetype comes from r/Arcs: "4
+  out of 5 ambitions are attainable through combat generally (Warlord) or
+  raiding specifically (Tycoon, Keeper, Empath) — it being a Cole Wehrle
+  wargame, the aggressor is at an advantage and aggression is pretty
+  necessary"
+  ([r/Arcs](https://www.reddit.com/r/Arcs/comments/1kep5nq/locked/mqkkl7w/)).
+  The forum adds a chapter gate: avoid all-out war in chapters 1–2, when there
+  are fewer ships, the trophies are cheap for the opponent, and the feud
+  outlives the chapter ([BGG
   3351351](https://boardgamegeek.com/thread/3351351/strategy-and-tactics-guide)).
 - **Key cards / cities** — Gatekeepers (two extra dice in any gate battle)
   turns the gate ring into a Warlord engine. Skirmishers rerolls blank
@@ -600,7 +647,17 @@ win yours plus theirs while locking out the third ([BGG
 3344265](https://boardgamegeek.com/thread/3344265/when-do-you-like-to-declare-ambitions)).
 Both agree the *optimal outcome* is winning first place on a box **somebody
 else declared** — "I rarely feel the need to declare ambitions, I prefer to
-snipe everyone else's".
+snipe everyone else's". The review press states the cost side plainly:
+declaring "drops your played card's rank to zero, which means it's now trivial
+for somebody else to seize the initiative"
+([Space-Biff](https://spacebiff.com/2024/04/23/arcs/)), and "the moment you
+declare, you paint a huge target on your back"
+([Punchboard](https://punchboard.co.uk/arcs-board-game-review/)). The
+characteristic beginner error is to pay both costs at once — take the
+initiative, then "immediately lead with a low card or declare, which lets
+someone else easily take the initiative from them; as a result they only have
+agency over 1–2 turns per chapter"
+([r/Arcs](https://www.reddit.com/r/Arcs/comments/1eqs2r5/a_common_complaint_that_makes_no_sense_to_me/lhu69p0/)).
 
 - **Trigger** — you hold the initiative, a marker is available, and your lead
   card's number matches a box. `eval.ts`'s `declarableLead` term already
@@ -706,7 +763,11 @@ keeps paying its +2/+5 bonus and keeps its resource slots open until Warlord
 next scores.
 
 - **Trigger** — your ship supply is low and you are behind on trophies; or you
-  hold trophies including a rival city and you are ahead.
+  hold trophies including a rival city and you are ahead. r/Arcs gives the
+  miserly version of the first case: "wait until the fewest possible ambition
+  points were available, and I would seize and declare it to get my ships back
+  and reward them with as few points as possible"
+  ([r/Arcs](https://www.reddit.com/r/Arcs/comments/1hym0x0/hesitation_to_declare_ambitions/m6khd1m/)).
 - **Counterplay** — the mirror: refuse to declare, and accept that your own
   captured pieces stay captured. This is a genuine two-sided tension the
   payoff matrix can measure, since `shipsSupply` and `citiesUsed` are both
@@ -991,11 +1052,14 @@ either should declare far more freely, and none of them notices".* Declaring
 Keeper or Empath means leading a 5 or a 6, the two best initiative cards in a
 suit and the two lowest pip counts, and then zeroing it. Secret Order deletes
 the zero marker on exactly those declarations, so the declarer keeps a 5 or 6
-on the table and usually keeps the marker with it. The community rates the
-card only B, which is a disagreement this catalog is happy to be tested on.
-*Counterplay*: none direct — the card must be taken out of the row before it
-is secured, or stolen after. *Signature*: Keeper/Empath declarations while
-holding Secret Order versus without.
+on the table and usually keeps the marker with it. The community splits hard
+on it: the BGG tier list rates it only B, while r/Arcs has a thread titled
+"Secret Order is the most broken card in the game"
+([r/Arcs](https://www.reddit.com/r/Arcs/comments/1ih0jd9/secret_order_is_the_most_broken_card_in_the_game/)).
+A disagreement this catalog is happy to be tested on. *Counterplay*: none
+direct — the card must be taken out of the row before it is secured, or stolen
+after. *Signature*: Keeper/Empath declarations while holding Secret Order
+versus without.
 
 **Galactic Bards lets a follower declare, and changes what the leader dares to
 do.** On a Surpass or Pivot, before actions, declare the ambition on your
@@ -1042,7 +1106,11 @@ ships than each Rival", so parity is enough to deny it.
 ambition on Securing it, from any seat, with no card number and no zero
 marker. Covered under `sniper`; the catalog point is that there is exactly one
 copy in the deck and it makes the line possible at all. *Counterplay*: take
-it, or exhaust the markers before it is secured.
+it, or exhaust the markers before it is secured — Space-Biff notes that
+declaring the same ambition repeatedly starves the slate, "depriving the round
+of other avenues for scoring"
+([Space-Biff](https://spacebiff.com/2024/04/23/arcs/)), which is the same
+lever pointed at a different target.
 
 ### Where the community contradicts the seeds
 
@@ -1060,7 +1128,8 @@ directly.
 | resource pricing | `weapon` 0.5, below `material` 0.65 | Relics/Psionics, then Fuel/**Weapons**, then Material ([3223590](https://boardgamegeek.com/thread/3223590/a-low-key-guide-to-winning-base-arcs)) | one preset row swapping the two |
 | Unions | not in the seed catalog at all | god-tier; three of four are S rank ([3229070](https://boardgamegeek.com/thread/3229070/arcs-guild-card-tier-list)) | the engine attaches one 0 times in 93 — fix the threshold, re-measure |
 | `sniper` passivity | invest nothing until late | lie low *while building position*; the surge needs a card surplus, not idleness ([3344265](https://boardgamegeek.com/thread/3344265/when-do-you-like-to-declare-ambitions)) | the chapter-multiplier preset, with and without a raised `handCard` |
-| Secret Order, Gatekeepers, Sworn Guardians | rated highly here on engine grounds | all three only B on the community tier list | per-card holding-versus-winning correlation over the K2 corpus |
+| Secret Order, Gatekeepers, Sworn Guardians | rated highly here on engine grounds | B on the BGG tier list, but r/Arcs calls Secret Order "the most broken card in the game" ([r/Arcs](https://www.reddit.com/r/Arcs/comments/1ih0jd9/secret_order_is_the_most_broken_card_in_the_game/)) | per-card holding-versus-winning correlation over the K2 corpus |
+| committing to an archetype at all | five fixed dispositions, each with a plan | "flexibility and pivoting, not engine building or long-term planning" ([r/Arcs](https://www.reddit.com/r/Arcs/comments/1i1ytdx/mitigating_randomness/m7avlp1/)) | if every preset loses to plain `greedy`, commitment is the mistake and the league needs an adaptive member |
 
 Two community themes are recorded but deliberately **not** turned into
 entries. Table talk and deal-making are described as first-class play in base

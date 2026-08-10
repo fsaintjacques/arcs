@@ -22,7 +22,10 @@ pub mod setup;
 pub mod state;
 pub mod types;
 
-pub use action::{Action, CardActionName, FollowMode, HitTarget, decode_action, encode_action};
+pub use action::{
+    Action, CardActionChoice, CardActionName, FollowMode, HitTarget, ParseActionError,
+    PreludeChoice, VoxChoice, decode_action, encode_action,
+};
 pub use ambitions::{
     AmbitionResult, ambition_count, ambition_count_with, score_ambition, score_chapter,
 };
