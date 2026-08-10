@@ -6,7 +6,7 @@
  * clicking a system on the board.
  */
 import { useMemo, useState } from 'react';
-import type { Action, GameState, VariantDef } from '../../engine';
+import type { Action, GameState, VariantDef } from '../../engine/types';
 import { actionGroup, actionSystem, describeAction } from '../describe';
 
 interface Props {

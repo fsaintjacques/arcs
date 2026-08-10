@@ -1,25 +1,31 @@
 /**
  * Drives one game in the browser: the engine advances itself through chance
  * nodes and bot seats, and stops whenever a human seat owes a decision.
+ *
+ * The engine is the Rust one, compiled to wasm (`src/ui/session.ts`). The hook
+ * never holds a game state it can mutate — it holds a `Session` handle and a
+ * JSON snapshot of the position for rendering. Two things fall out of that:
+ *
+ *   - a decision is played by **index into the legal list**, so an unoffered
+ *     action cannot be played, and
+ *   - undo is a `restore()` of a saved position rather than a state clone plus
+ *     an RNG stream replayed forward from its seed. Rust's `GameState` is
+ *     `Copy` and the session snapshots its RNGs alongside it, so a rewound game
+ *     re-draws exactly the dice and deals the player already saw.
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import {
-  applyActionMut,
-  cloneState,
-  getPending,
-  makeVariant,
-  mulberry32,
-  newGame,
-  observe,
-  resolveChanceMut,
-  standings,
-  type Action,
-  type GameState,
-  type RNG,
-  type VariantDef,
-} from '../engine';
-import { makeAgent, type Agent, type AgentCtx } from '../agents';
+import type { Action, GameState, VariantDef } from '../engine/types';
 import { describeAction } from './describe';
+import {
+  createSession,
+  pending,
+  readActions,
+  readAmbitionCounts,
+  readStandings,
+  readState,
+  readVariant,
+  type Session,
+} from './session';
 
 export interface GameConfig {
   players: number;
@@ -37,6 +43,12 @@ export interface LogEntry {
   text: string;
 }
 
+export interface Standing {
+  player: number;
+  power: number;
+  rank: number;
+}
+
 export interface GameHandle {
   variant: VariantDef;
   state: GameState;
@@ -48,6 +60,10 @@ export interface GameHandle {
   busy: boolean;
   humanSeats: number[];
   log: LogEntry[];
+  /** Final standings, best first — empty until the game is over. */
+  standings: Standing[];
+  /** Ambition tallies per seat, in `AMBITIONS` order, from the engine. */
+  ambitionCounts: number[][];
   play: (a: Action) => void;
   /**
    * Rewind to the previous human decision (or the last one, from game over).
@@ -60,45 +76,12 @@ export interface GameHandle {
   config: GameConfig;
 }
 
-function buildAgents(config: GameConfig): (Agent | null)[] {
-  return config.seats.map((name) => (name ? makeAgent(name) : null));
-}
-
-/**
- * A seeded RNG that counts its draws, so a snapshot can be restored by
- * replaying the same stream forward. Undo needs this: state alone is not
- * enough, because a rewound game would otherwise re-draw different dice and
- * deals than the ones the player already saw.
- */
-interface Stream {
-  n: number;
-  fn: RNG;
-  /** Rewind to draw `n` by replaying the stream from its seed. */
-  restore: (n: number) => void;
-}
-
-function makeStream(seed: number): Stream {
-  let raw = mulberry32(seed);
-  const s: Stream = {
-    n: 0,
-    fn: () => {
-      s.n++;
-      return raw();
-    },
-    restore: (n: number) => {
-      raw = mulberry32(seed);
-      for (let i = 0; i < n; i++) raw();
-      s.n = n;
-    },
-  };
-  return s;
-}
-
 /** One rewind point: the game as it stood when a human was asked to decide. */
-interface Snapshot {
-  state: GameState;
-  draws: number;
-  ctxDraws: number[];
+interface Rewind {
+  /** Handle of the position saved inside the wasm session. */
+  snap: number;
+  /** Decisions and chance nodes resolved when it was taken. */
+  step: number;
   log: LogEntry[];
 }
 
@@ -136,58 +119,54 @@ export function revealedSince(s: GameState, humanSeats: number[], before: InfoMa
   return humanSeats.some((h, i) => s.playerStates[h].hand.some((c) => !before.hands[i].has(c)));
 }
 
+/** The seats no agent is playing. */
+function humansOf(config: GameConfig): number[] {
+  return config.seats.slice(0, config.players).flatMap((name, i) => (name ? [] : [i]));
+}
+
 export function useGame(initial: GameConfig): GameHandle {
   const [config, setConfig] = useState(initial);
   const [, forceRender] = useState(0);
   const bump = useCallback(() => forceRender((n) => n + 1), []);
 
-  const variant = useMemo(
-    () => makeVariant(config.players, config.setupIndex),
-    [config.players, config.setupIndex],
-  );
-
-  const gameStream = useRef<Stream>(makeStream(config.seed));
-  const ctxStreams = useRef<Stream[]>([]);
-  const stateRef = useRef<GameState>(newGame(variant, gameStream.current.fn, config.setupIndex));
+  const sessionRef = useRef<Session | null>(null);
+  const variantRef = useRef<VariantDef | null>(null);
+  const stateRef = useRef<GameState | null>(null);
+  const actionsRef = useRef<Action[]>([]);
   const logRef = useRef<LogEntry[]>([]);
-  const agentsRef = useRef<(Agent | null)[]>(buildAgents(config));
-  const ctxsRef = useRef<AgentCtx[]>([]);
-  const undoStack = useRef<Snapshot[]>([]);
+  const undoStack = useRef<Rewind[]>([]);
   /** True once hidden information has been revealed since the last snapshot. */
   const revealedRef = useRef(false);
+  /** Nodes resolved so far — the identity of "this moment", for undo. */
+  const stepRef = useRef(0);
   const [busy, setBusy] = useState(false);
   const timer = useRef<number | null>(null);
 
-  const start = useCallback(
+  /** Re-read the position out of the session for rendering. */
+  const sync = useCallback(() => {
+    const session = sessionRef.current!;
+    stateRef.current = readState(session);
+    actionsRef.current = readActions(session);
+  }, []);
+
+  /** Replace the session with a fresh game, and clear everything about the old one. */
+  const build = useCallback(
     (c: GameConfig) => {
-      const v = makeVariant(c.players, c.setupIndex);
-      gameStream.current = makeStream(c.seed);
-      stateRef.current = newGame(v, gameStream.current.fn, c.setupIndex);
+      sessionRef.current?.free();
+      const session = createSession(c);
+      sessionRef.current = session;
+      variantRef.current = readVariant(session);
       logRef.current = [];
       undoStack.current = [];
       revealedRef.current = false;
-      agentsRef.current = buildAgents(c);
-      ctxStreams.current = c.seats.map((_, player) =>
-        makeStream((c.seed ^ (0x9e3779b9 * (player + 1))) >>> 0),
-      );
-      ctxsRef.current = c.seats.map((_, player) => ({
-        variant: v,
-        rng: ctxStreams.current[player].fn,
-        player,
-      }));
-      bump();
+      stepRef.current = 0;
+      sync();
     },
-    [bump],
+    [sync],
   );
 
-  // Rebuild whenever the configuration changes.
-  useEffect(() => {
-    start(config);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [config]);
-
   const record = useCallback((player: number | null, text: string) => {
-    const s = stateRef.current;
+    const s = stateRef.current!;
     logRef.current = [...logRef.current.slice(-199), { chapter: s.chapter, player, text }];
   }, []);
 
@@ -198,18 +177,19 @@ export function useGame(initial: GameConfig): GameHandle {
    * twice in development, and one moment must not become two rewind points.
    */
   const pushUndo = useCallback(() => {
+    const session = sessionRef.current!;
     const top = undoStack.current[undoStack.current.length - 1];
-    if (top && top.draws === gameStream.current.n && top.log === logRef.current) return;
+    if (top && top.step === stepRef.current && top.log === logRef.current) return;
     // A reveal happened since the last rewind point: everything before it is
     // out of reach, and the snapshot about to be pushed becomes the new floor.
     if (revealedRef.current) {
       undoStack.current.length = 0;
+      session.truncateSnapshots(0);
       revealedRef.current = false;
     }
     undoStack.current.push({
-      state: cloneState(stateRef.current),
-      draws: gameStream.current.n,
-      ctxDraws: ctxStreams.current.map((s) => s.n),
+      snap: session.snapshot(),
+      step: stepRef.current,
       log: logRef.current,
     });
     if (undoStack.current.length > 100) undoStack.current.shift();
@@ -220,11 +200,11 @@ export function useGame(initial: GameConfig): GameHandle {
    * spaced out with a timer so the board can be watched.
    */
   const advance = useCallback(() => {
-    const v = makeVariant(config.players, config.setupIndex);
-    const s = stateRef.current;
+    const session = sessionRef.current!;
+    const humans = humansOf(config);
 
     for (let guard = 0; guard < 500; guard++) {
-      const node = getPending(s, v);
+      const node = pending(session);
       if (node.kind === 'over') {
         pushUndo();
         setBusy(false);
@@ -234,21 +214,24 @@ export function useGame(initial: GameConfig): GameHandle {
       if (node.kind === 'chance') {
         // Dice and deals are reveals by definition.
         revealedRef.current = true;
-        const rolling = s.phase === 'battleRoll' ? s.battle : null;
-        const wasReroll = (rolling?.pendingReroll ?? 0) > 0;
-        const hitsBefore = rolling?.hits ?? 0;
-        resolveChanceMut(s, v, gameStream.current.fn);
-        if (rolling) {
+        const before = stateRef.current!;
+        const rolling = before.phase === 'battleRoll' ? before.battle : null;
+        session.resolveChance();
+        stepRef.current++;
+        sync();
+        const rolled = stateRef.current!.battle;
+        if (rolling && rolled) {
           // Keep the roll readable after the dice leave the table.
-          const text = wasReroll
-            ? `rerolls the blanks: +${rolling.hits - hitsBefore} hit${rolling.hits - hitsBefore === 1 ? '' : 's'}`
-            : `rolls: ${describeRoll(rolling)}`;
-          record(rolling.attacker, text);
+          const gained = rolled.hits - rolling.hits;
+          const text =
+            rolling.pendingReroll > 0
+              ? `rerolls the blanks: +${gained} hit${gained === 1 ? '' : 's'}`
+              : `rolls: ${describeRoll(rolled)}`;
+          record(rolled.attacker, text);
         }
         continue;
       }
-      const agent = agentsRef.current[node.player];
-      if (!agent) {
+      if (!config.seats[node.player]) {
         pushUndo();
         setBusy(false);
         bump();
@@ -259,26 +242,30 @@ export function useGame(initial: GameConfig): GameHandle {
       bump();
       timer.current = window.setTimeout(() => {
         timer.current = null;
-        const ctx = ctxsRef.current[node.player] ?? {
-          variant: v,
-          rng: gameStream.current.fn,
-          player: node.player,
-        };
-        const action = agent.choose(observe(s, v, node.player), node.actions, ctx);
-        record(node.player, describeForLog(action, s, v));
-        const humans = config.seats.flatMap((name, i) => (name ? [] : [i]));
-        const before = markInfo(s, humans);
-        applyActionMut(s, v, action);
-        if (revealedSince(s, humans, before)) revealedRef.current = true;
+        const index = session.botChoose();
+        const action = actionsRef.current[index];
+        record(node.player, describeAction(action, stateRef.current!, variantRef.current!));
+        const before = markInfo(stateRef.current!, humans);
+        session.apply(index);
+        stepRef.current++;
+        sync();
+        if (revealedSince(stateRef.current!, humans, before)) revealedRef.current = true;
         advance();
       }, config.botDelay);
       return;
     }
     setBusy(false);
     bump();
-  }, [bump, config.botDelay, config.players, config.seats, config.setupIndex, pushUndo, record]);
+  }, [bump, config, pushUndo, record, sync]);
 
+  // The first render happens before the effect below, so the session exists
+  // from the very first paint rather than being null for a frame.
+  if (sessionRef.current === null) build(config);
+
+  // Rebuild and run whenever the configuration changes.
   useEffect(() => {
+    build(config);
+    bump();
     advance();
     return () => {
       if (timer.current !== null) window.clearTimeout(timer.current);
@@ -286,76 +273,80 @@ export function useGame(initial: GameConfig): GameHandle {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [config]);
 
-  const s = stateRef.current;
-  const node = getPending(s, variant);
-  const humanSeats = config.seats.flatMap((name, i) => (name ? [] : [i]));
+  const s = stateRef.current!;
+  const node = pending(sessionRef.current!);
+  const humanSeats = humansOf(config);
   const actor = node.kind === 'decision' ? node.player : null;
-  const humanTurn = actor !== null && !agentsRef.current[actor];
+  const humanTurn = actor !== null && !config.seats[actor];
 
   const play = useCallback(
     (a: Action) => {
-      const v = makeVariant(config.players, config.setupIndex);
-      const cur = stateRef.current;
-      const pending = getPending(cur, v);
-      if (pending.kind !== 'decision') return;
-      record(pending.player, describeForLog(a, cur, v));
-      const humans = config.seats.flatMap((name, i) => (name ? [] : [i]));
-      const before = markInfo(cur, humans);
-      applyActionMut(cur, v, a);
-      if (revealedSince(cur, humans, before)) revealedRef.current = true;
+      const current = sessionRef.current!;
+      const index = actionsRef.current.indexOf(a);
+      const node = pending(current);
+      if (index < 0 || node.kind !== 'decision') return;
+      const humans = humansOf(config);
+      record(node.player, describeAction(a, stateRef.current!, variantRef.current!));
+      const before = markInfo(stateRef.current!, humans);
+      current.apply(index);
+      stepRef.current++;
+      sync();
+      if (revealedSince(stateRef.current!, humans, before)) revealedRef.current = true;
       advance();
     },
-    [advance, config.players, config.seats, config.setupIndex, record],
+    [advance, config, record, sync],
   );
 
   /**
    * Rewind to the previous rewind point. The stack top is always *this*
    * moment (it was pushed when the engine stopped here), so undo discards it
    * and restores the one before — the human's previous decision, with any bot
-   * turns in between unwound along with it. The stored copy is cloned on the
-   * way out so repeated undo keeps working, and every RNG stream is replayed
-   * to its recorded position so the rewound game re-draws the same dice and
-   * deals the player already saw.
+   * turns in between unwound along with it. The session's saved position
+   * carries its RNGs, so the rewound game re-draws the same dice and deals the
+   * player already saw.
    */
   const undo = useCallback(() => {
     if (timer.current !== null || undoStack.current.length < 2) return;
     undoStack.current.pop();
-    const snap = undoStack.current[undoStack.current.length - 1];
-    stateRef.current = cloneState(snap.state);
-    logRef.current = snap.log;
+    const rewind = undoStack.current[undoStack.current.length - 1];
+    sessionRef.current!.restore(rewind.snap);
+    logRef.current = rewind.log;
+    stepRef.current = rewind.step;
     revealedRef.current = false;
-    gameStream.current.restore(snap.draws);
-    ctxStreams.current.forEach((stream, i) => stream.restore(snap.ctxDraws[i] ?? 0));
+    sync();
     setBusy(false);
     bump();
-  }, [bump]);
+  }, [bump, sync]);
 
-  const reset = useCallback(
-    (patch?: Partial<GameConfig>) => {
-      if (timer.current !== null) window.clearTimeout(timer.current);
-      setConfig((c) => ({ ...c, ...patch }));
-    },
-    [],
+  const reset = useCallback((patch?: Partial<GameConfig>) => {
+    if (timer.current !== null) window.clearTimeout(timer.current);
+    setConfig((c) => ({ ...c, ...patch }));
+  }, []);
+
+  // Both are read from the engine rather than recomputed in TypeScript, and
+  // both are cheap enough to take whenever the position changes.
+  const standings = useMemo(
+    () => (s.phase === 'over' ? readStandings(sessionRef.current!) : []),
+    [s],
   );
+  const ambitionCounts = useMemo(() => readAmbitionCounts(sessionRef.current!), [s]);
 
   return {
-    variant,
+    variant: variantRef.current!,
     state: s,
-    actions: humanTurn && node.kind === 'decision' ? node.actions : [],
+    actions: humanTurn ? actionsRef.current : [],
     actor,
     busy: busy || (actor !== null && !humanTurn),
     humanSeats,
     log: logRef.current,
+    standings,
+    ambitionCounts,
     play,
     undo,
     canUndo: undoStack.current.length >= 2 && timer.current === null,
     reset,
     config,
   };
-}
-
-function describeForLog(a: Action, s: GameState, v: VariantDef): string {
-  return describeAction(a, s, v);
 }
 
 /** The roll as words, read at the moment the dice settle (nothing assigned yet). */
@@ -368,8 +359,4 @@ function describeRoll(b: NonNullable<GameState['battle']>): string {
     b.interceptResolved ? 'intercepted' : '',
   ].filter(Boolean);
   return parts.length > 0 ? parts.join(', ') : 'all blanks';
-}
-
-export function finalStandings(s: GameState) {
-  return standings(s);
 }

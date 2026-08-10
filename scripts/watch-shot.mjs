@@ -1,15 +1,15 @@
 /** Run an all-bot game for a while, then screenshot — used to catch damaged ships. */
-import { chromium } from 'playwright';
+import { appUrl, launchChromium } from './browser.mjs';
 
 const out = process.argv[2] ?? '/tmp/watch.png';
 const waitMs = Number(process.argv[3] ?? 25000);
-const browser = await chromium.launch({ executablePath: '/opt/pw-browsers/chromium' });
+const browser = await launchChromium();
 const page = await browser.newPage({ viewport: { width: 1500, height: 1150 } });
 const errors = [];
 page.on('console', (m) => { if (m.type() === 'error') errors.push(m.text()); });
 page.on('pageerror', (e) => errors.push(`pageerror: ${e.message}`));
 
-await page.goto('http://localhost:5173/', { waitUntil: 'networkidle' });
+await page.goto(appUrl, { waitUntil: 'networkidle' });
 await page.selectOption('.controls select >> nth=1', 'greedy');
 await page.fill('.controls input >> nth=2', '10');
 await page.click('button.primary');

@@ -9,7 +9,7 @@
  * Colours are sampled from the rulebook where a sample was available, and
  * flagged where they are not.
  */
-import type { ResourceType, Suit } from '../../engine';
+import type { ResourceType, Suit } from '../../engine/types';
 
 /**
  * Action-card suit colours.

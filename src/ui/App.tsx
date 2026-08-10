@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react';
-import { agentNames } from '../agents';
-import { actionCard, standings, POWER_THRESHOLD, type GameState } from '../engine';
+import { actionCard } from '../engine/cards';
+import type { GameState } from '../engine/types';
+import { agentNames } from './session';
 import { Board } from './components/Board';
 import { ActionList } from './components/ActionList';
 import { BattlePanel } from './components/Dice';
@@ -68,7 +69,7 @@ function GameView({ mode }: { mode: 'play' | 'watch' }) {
 
   const s = game.state;
   const over = s.phase === 'over';
-  const table = over ? standings(s) : [];
+  const table = game.standings;
   const humanSeat = game.humanSeats[0] ?? null;
 
   return (
@@ -101,7 +102,7 @@ function GameView({ mode }: { mode: 'play' | 'watch' }) {
             )}
           </div>
           <div className="status-line dim">
-            {POWER_THRESHOLD[s.players]} Power ends the game.
+            {game.variant.powerThreshold} Power ends the game.
           </div>
           <Controls game={game} mode={mode} />
         </section>
@@ -147,7 +148,7 @@ function GameView({ mode }: { mode: 'play' | 'watch' }) {
           )}
         </div>
         <Trick state={s} />
-        <Ambitions state={s} variant={game.variant} />
+        <Ambitions state={s} variant={game.variant} counts={game.ambitionCounts} />
         <Players state={s} humanSeats={game.humanSeats} actor={game.actor} />
         <Log log={game.log} />
       </div>

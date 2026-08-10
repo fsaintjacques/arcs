@@ -11,7 +11,8 @@
  * *meaning*, not scans of the artwork.
  */
 import type { ReactElement } from 'react';
-import { DIE_FACES, type DieFace, type DieType, type GameState, type VariantDef } from '../../engine';
+import { DIE_FACES } from '../../engine/dice';
+import type { DieFace, DieType, GameState, VariantDef } from '../../engine/types';
 import { PLAYER_COLORS, PLAYER_NAMES } from '../describe';
 
 const DIE_COLOR: Record<DieType, string> = {

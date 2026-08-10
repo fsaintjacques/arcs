@@ -1,6 +1,6 @@
 /** Render the battle panel off a doctored mid-battle state, all die types out. */
 import { writeFileSync, readFileSync } from 'node:fs';
-import { chromium } from 'playwright';
+import { launchChromium } from './browser.mjs';
 
 const { renderToStaticMarkup } = await import('react-dom/server');
 const { makeVariant, mulberry32, newGame } = await import('../src/engine/index.ts');
@@ -31,7 +31,7 @@ const html = renderToStaticMarkup(React.createElement(BattlePanel, { state: s, v
 const css = readFileSync(new URL('../src/ui/styles.css', import.meta.url), 'utf8');
 writeFileSync('/tmp/dice.html', `<style>body{background:#0d1017;margin:16px;width:420px}${css}</style>${html}`);
 
-const browser = await chromium.launch({ executablePath: '/opt/pw-browsers/chromium' });
+const browser = await launchChromium();
 const page = await browser.newPage({ viewport: { width: 460, height: 420 } });
 await page.goto('file:///tmp/dice.html');
 await page.screenshot({ path: process.argv[2] ?? '/tmp/dice.png' });

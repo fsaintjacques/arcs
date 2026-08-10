@@ -2,6 +2,12 @@
 /**
  * Runs simulation batches off the main thread so the UI stays responsive
  * while a few hundred games play out.
+ *
+ * This is the one part of the UI still on the **TypeScript** engine. Play and
+ * Watch drive the Rust engine through wasm (`session.ts`); a batch harness
+ * wants the whole `src/sim` stack — paired blocks, seat permutation,
+ * `pairedStats` — which is the Rust R6 milestone, not this one. Moving the
+ * panel over is a straight swap once `arcs-sim` exists.
  */
 import { makeAgent } from '../agents';
 import { simulate } from '../sim/runner';

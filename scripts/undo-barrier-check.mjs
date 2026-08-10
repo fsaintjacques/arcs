@@ -3,13 +3,13 @@
  * decisions, and is dead at the first decision after the chapter deal — a
  * chance node, the same code path as a battle roll.
  */
-import { chromium } from 'playwright';
+import { appUrl, launchChromium } from './browser.mjs';
 
-const browser = await chromium.launch({ executablePath: '/opt/pw-browsers/chromium' });
+const browser = await launchChromium();
 const page = await browser.newPage({ viewport: { width: 1500, height: 1150 } });
 const errors = [];
 page.on('pageerror', (e) => errors.push(e.message));
-await page.goto('http://localhost:5173/', { waitUntil: 'networkidle' });
+await page.goto(appUrl, { waitUntil: 'networkidle' });
 await page.waitForTimeout(1500);
 
 const undoEnabled = async () => !(await page.locator('.undo-btn').isDisabled());

@@ -12,13 +12,8 @@
  * from the printed board is the *arrangement* — the wheel, the gate ring, the
  * numbering, the triangles — rather than any artwork.
  */
-import {
-  CLUSTER_COUNT,
-  clusterOf,
-  isGate,
-  type GameState,
-  type VariantDef,
-} from '../../engine';
+import { CLUSTER_COUNT, clusterOf, isGate } from '../../engine/map';
+import type { GameState, VariantDef } from '../../engine/types';
 import { PLAYER_COLORS, PLAYER_NAMES } from '../describe';
 import { BuildingSlot, CLUSTER_TINT, RESOURCE_COLOR, ResourceGlyph, Ship } from './Glyphs';
 
