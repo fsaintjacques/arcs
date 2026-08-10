@@ -203,8 +203,24 @@ pub fn determinize(
 
     // Whatever is left is the deck and discard; the split does not matter
     // because a chapter deal reshuffles both together.
+    //
+    // deviation from observe.ts: the face-up cards in `revealed` are excluded
+    // from the pool (the observer watched them leave play) but TS never puts
+    // them anywhere, so a determinized world is missing `revealed.length`
+    // cards. They *are* in the discard in the true state, so they go back into
+    // it here. The TS gap is invisible at 1 ply — `greedy` never settles
+    // across a chapter break — but a search that rolls out 30 decisions does
+    // reach `dealChapter`, where the short deck deals `undefined` cards in TS
+    // and panics in Rust. With this the world's card multiset is exactly
+    // `variant.action_deck`, which `determinize_conserves_every_action_card`
+    // asserts.
     s.action_deck.clear();
-    s.action_discard = pool.as_slice()[front..back].iter().copied().collect();
+    let mut discard: InlineVec<ActionCardId, ACTION_CARD_COUNT> =
+        pool.as_slice()[front..back].iter().copied().collect();
+    for &c in s.revealed.iter() {
+        discard.push(c);
+    }
+    s.action_discard = discard;
 
     // The Court deck's order is unknown; rebuild it from the cards not in
     // play.
