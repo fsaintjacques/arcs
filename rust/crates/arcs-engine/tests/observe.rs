@@ -363,3 +363,99 @@ fn a_sampled_world_plays_out() {
     }
     panic!("sampled world did not terminate");
 }
+
+/// A state deep enough that face-up cards have been discarded, so `revealed`
+/// is not empty. No TS counterpart: the TS suite never determinized a position
+/// this far into a chapter.
+fn deep_game(players: u8, seed: u64) -> (VariantDef, GameState, SplitMix64) {
+    let v = make_variant(players, 1, SetupMode::Deck);
+    let mut rng = SplitMix64::new(seed);
+    let mut s = new_game(&v, &mut rng, 1, SetupMode::Deck);
+    let mut acts = Vec::new();
+    for _ in 0..200_000 {
+        if !s.revealed.is_empty() {
+            break;
+        }
+        match get_pending(&s, &v) {
+            Pending::Over => break,
+            Pending::Chance => resolve_chance_mut(&mut s, &v, &mut rng).unwrap(),
+            Pending::Decision { .. } => {
+                legal_actions(&s, &v, &mut acts);
+                let a = acts[rng.gen_range(acts.len())];
+                apply_action_mut(&mut s, &v, a).unwrap();
+            }
+        }
+    }
+    (v, s, rng)
+}
+
+/// A determinized world holds every action card in the variant, exactly once.
+///
+/// This is the invariant `observe.ts` quietly breaks: it removes the publicly
+/// discarded `revealed` cards from the deal pool and never puts them back, so
+/// a TS world is short by that many cards. Nothing at 1 ply notices, but a
+/// search that rolls out into the next chapter deals off a short deck.
+#[test]
+fn determinize_conserves_every_action_card() {
+    let mut want = [0u8; ACTION_CARD_COUNT];
+    for seed in [3u64, 21, 44, 90] {
+        let (v, s, mut rng) = deep_game(3, seed);
+        if s.phase == Phase::Over {
+            continue;
+        }
+        assert!(!s.revealed.is_empty(), "seed {seed} revealed nothing");
+        want.fill(0);
+        for &c in v.action_deck.iter() {
+            want[c.as_index()] += 1;
+        }
+        for player in (0..s.players).map(Player) {
+            let obs = observe(&s, &v, player);
+            let world = determinize(&obs, &v, &mut rng, DeterminizeOptions::default());
+            let mut count = [0u8; ACTION_CARD_COUNT];
+            for p in 0..world.players as usize {
+                for &c in world.player_states[p].hand.iter() {
+                    count[c.as_index()] += 1;
+                }
+            }
+            for c in world.round.played.iter() {
+                count[c.card.as_index()] += 1;
+            }
+            for &c in world.action_deck.iter() {
+                count[c.as_index()] += 1;
+            }
+            for &c in world.action_discard.iter() {
+                count[c.as_index()] += 1;
+            }
+            assert_eq!(
+                count, want,
+                "seed {seed}, seat {player:?}: the sampled world is not a permutation of the deck"
+            );
+        }
+    }
+}
+
+/// The same position sampled and then played to the end. A short deck only
+/// bites at the next chapter deal, which is several rounds away — which is
+/// why only a searching agent ever met it.
+#[test]
+fn a_world_sampled_late_in_a_chapter_plays_out() {
+    let (v, s, mut rng) = deep_game(3, 21);
+    if s.phase == Phase::Over {
+        return;
+    }
+    let mut world = sample_world(&s, &v, Player(0), &mut rng);
+    let mut acts = Vec::new();
+    for _ in 0..200_000 {
+        match get_pending(&world, &v) {
+            Pending::Over => return,
+            Pending::Chance => resolve_chance_mut(&mut world, &v, &mut rng).unwrap(),
+            Pending::Decision { .. } => {
+                legal_actions(&world, &v, &mut acts);
+                assert!(!acts.is_empty());
+                let a: Action = acts[rng.gen_range(acts.len())];
+                apply_action_mut(&mut world, &v, a).unwrap();
+            }
+        }
+    }
+    panic!("sampled world did not terminate");
+}

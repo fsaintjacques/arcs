@@ -129,6 +129,33 @@ fn mulligan_player(s: &GameState) -> Player {
 // ---------------------------------------------------------------------------
 
 /// Enumerate every legal action into `out` (cleared first).
+///
+/// # The enumeration order is a stable contract
+///
+/// An agent answers a decision with an **index into this list**
+/// (`arcs_agents::Agent::choose`), so the meaning of "index 3" is defined by
+/// nothing but the order these actions are pushed. Three things read that
+/// index and would be silently corrupted by a reordering refactor:
+///
+/// - **recorded trajectories** — self-play data stores a chosen index per
+///   decision, and reordering would relabel every sample in the archive
+///   against a policy that was trained on the old order;
+/// - **cross-language policies** — the wasm and PyO3 bindings hand an external
+///   net `(features, n_legal)` and take an integer back, with no shared action
+///   vocabulary to check it against;
+/// - **cached decisions** — the search agents key nodes by `Action`, but the
+///   harness and the CLI address moves by position.
+///
+/// `tests/enumeration_order.rs` pins the exact sequence for a set of fixed
+/// seeded states, so a change here fails loudly instead of quietly changing
+/// what index 3 means. Adding an action kind at the *end* of a phase's block
+/// is the cheap way to extend the vocabulary; inserting one in the middle is a
+/// breaking change to every consumer above.
+///
+/// **Anything persisted must use [`crate::encode_action`] or
+/// `arcs_agents::HeadTargets`, never the raw index.** An index is a transport
+/// detail valid only for the state that produced it; a canonical key or a set
+/// of head targets survives an engine that enumerates differently tomorrow.
 pub fn legal_actions(s: &GameState, v: &VariantDef, out: &mut Vec<Action>) {
     out.clear();
     if s.pending_vox.is_some() {
