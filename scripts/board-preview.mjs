@@ -1,6 +1,6 @@
 /** Render the board with a doctored state, so damage is visible without playing. */
 import { writeFileSync, readFileSync } from 'node:fs';
-import { chromium } from 'playwright';
+import { launchChromium } from './browser.mjs';
 
 const { renderToStaticMarkup } = await import('react-dom/server');
 const { makeVariant, mulberry32, newGame } = await import('../src/engine/index.ts');
@@ -17,7 +17,7 @@ const svg = renderToStaticMarkup(React.createElement(Board, { state: s, variant:
 const css = readFileSync(new URL('../src/ui/styles.css', import.meta.url), 'utf8');
 writeFileSync('/tmp/board.html', `<style>body{background:#0d1017;margin:0}${css}</style><div style="width:900px">${svg}</div>`);
 
-const browser = await chromium.launch({ executablePath: '/opt/pw-browsers/chromium' });
+const browser = await launchChromium();
 const page = await browser.newPage({ viewport: { width: 940, height: 960 } });
 await page.goto('file:///tmp/board.html');
 await page.screenshot({ path: process.argv[2] ?? '/tmp/board.png' });

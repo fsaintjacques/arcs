@@ -3,7 +3,7 @@ import { useEffect, useRef, useState } from 'react';
 import { agentNames } from '../../agents';
 import type { BatchStats, PairedComparison } from '../../sim/stats';
 import type { SimMessage, SimRequest } from '../simWorker';
-import { AMBITIONS } from '../../engine';
+import { AMBITIONS } from '../../engine/types';
 import { AMBITION_LABEL } from '../describe';
 
 export function SimPanel() {

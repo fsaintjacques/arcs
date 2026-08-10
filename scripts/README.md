@@ -1,5 +1,13 @@
 # scripts
 
+- `build-wasm.mjs` — compiles `rust/crates/arcs-wasm` into `src/ui/wasm/`,
+  which is the engine the UI runs on. Wired into `predev`/`prebuild`/`pretest`
+  and a no-op when the artifact is newer than every Rust source; `--force`
+  rebuilds anyway. Needs `rustup target add wasm32-unknown-unknown` and
+  [`wasm-pack`](https://rustwasm.github.io/wasm-pack/installer/).
+- `browser.mjs` — where the other scripts get Chromium (`PW_CHROMIUM`, else the
+  sandbox's `/opt/pw-browsers/chromium`, else Playwright's own download) and
+  the dev-server URL (`ARCS_URL`, default `http://localhost:5173/`).
 - `screenshot.mjs` — launch the dev server (`npm run dev`), then
   `node scripts/screenshot.mjs out.png` to capture the UI. Used to check the
   board renders after map or layout changes.

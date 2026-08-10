@@ -1,12 +1,12 @@
 /** Click through human decisions until a spent pip renders as a filled circle. */
-import { chromium } from 'playwright';
+import { appUrl, launchChromium } from './browser.mjs';
 
 const shot = process.argv[2] ?? '/tmp/pips.png';
-const browser = await chromium.launch({ executablePath: '/opt/pw-browsers/chromium' });
+const browser = await launchChromium();
 const page = await browser.newPage({ viewport: { width: 1500, height: 1150 } });
 const errors = [];
 page.on('pageerror', (e) => errors.push(e.message));
-await page.goto('http://localhost:5173/', { waitUntil: 'networkidle' });
+await page.goto(appUrl, { waitUntil: 'networkidle' });
 await page.waitForTimeout(1500);
 
 for (let i = 0; i < 60; i++) {

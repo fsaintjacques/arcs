@@ -5,3 +5,5 @@ dist/
 tsconfig.tsbuildinfo
 .claude/
 tools/out/
+# The UI runs on the Rust engine; `npm run build:wasm` regenerates this.
+src/ui/wasm/

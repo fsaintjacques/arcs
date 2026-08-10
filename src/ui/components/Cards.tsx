@@ -15,7 +15,9 @@
  *
  * The artwork itself is a stylised stand-in — see the note in Glyphs.tsx.
  */
-import { actionCard, courtCard, type AmbitionId } from '../../engine';
+import { actionCard } from '../../engine/cards';
+import { courtCard } from '../../engine/court';
+import type { AmbitionId } from '../../engine/types';
 import { AMBITION_LABEL } from '../describe';
 import { Key, Pip, ResourceGlyph, SUIT_ACTION_TEXT, SUIT_COLOR, SUIT_MEDALLION } from './Glyphs';
 

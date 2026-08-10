@@ -1,14 +1,9 @@
 /** Side panels: ambitions, the Court row, player boards, hand, and the log. */
 import { useState } from 'react';
-import {
-  AMBITIONS,
-  ambitionCount,
-  actionCard,
-  markerValue,
-  openResourceSlots,
-  type GameState,
-  type VariantDef,
-} from '../../engine';
+import { markerValue } from '../../engine/ambitions';
+import { actionCard } from '../../engine/cards';
+import { openResourceSlots } from '../../engine/playerBoard';
+import { AMBITIONS, type GameState, type VariantDef } from '../../engine/types';
 import {
   AMBITION_COUNTS,
   AMBITION_LABEL,
@@ -19,7 +14,16 @@ import {
 import type { LogEntry } from '../useGame';
 import { ActionCardFace, CourtCardFace } from './Cards';
 
-export function Ambitions({ state, variant }: { state: GameState; variant: VariantDef }) {
+export function Ambitions({
+  state,
+  variant,
+  counts: tallies,
+}: {
+  state: GameState;
+  variant: VariantDef;
+  /** Per-seat tallies in `AMBITIONS` order, counted by the engine. */
+  counts: number[][];
+}) {
   return (
     <section className="panel">
       <h2>Ambitions</h2>
@@ -36,7 +40,7 @@ export function Ambitions({ state, variant }: { state: GameState; variant: Varia
           </tr>
         </thead>
         <tbody>
-          {AMBITIONS.map((a) => {
+          {AMBITIONS.map((a, ai) => {
             const markers = state.declared[a];
             const first = markers.reduce(
               (n, i) => n + markerValue(variant.ambitionMarkers, i, state.flipped[i]).first,
@@ -46,7 +50,7 @@ export function Ambitions({ state, variant }: { state: GameState; variant: Varia
               (n, i) => n + markerValue(variant.ambitionMarkers, i, state.flipped[i]).second,
               0,
             );
-            const counts = state.playerStates.map((p) => ambitionCount(p, a));
+            const counts = state.playerStates.map((_, p) => tallies[p]?.[ai] ?? 0);
             const top = Math.max(0, ...counts, state.phantom[a] ?? 0);
             return (
               <tr key={a} className={markers.length ? 'declared' : ''}>

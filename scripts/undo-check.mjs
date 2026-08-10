@@ -1,12 +1,12 @@
 /** Drive the play tab: act, undo, and check the game rewinds exactly. */
-import { chromium } from 'playwright';
+import { appUrl, launchChromium } from './browser.mjs';
 
 const shot = process.argv[2] ?? '/tmp/undo.png';
-const browser = await chromium.launch({ executablePath: '/opt/pw-browsers/chromium' });
+const browser = await launchChromium();
 const page = await browser.newPage({ viewport: { width: 1500, height: 1150 } });
 const errors = [];
 page.on('pageerror', (e) => errors.push(e.message));
-await page.goto('http://localhost:5173/', { waitUntil: 'networkidle' });
+await page.goto(appUrl, { waitUntil: 'networkidle' });
 await page.waitForTimeout(1500);
 
 const status = () => page.locator('.status-line').first().innerText();

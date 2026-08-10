@@ -1,13 +1,7 @@
 /** Human-readable labels for actions and state, shared by the UI. */
-import {
-  actionCard,
-  courtCard,
-  type Action,
-  type AmbitionId,
-  type GameState,
-  type ResourceType,
-  type VariantDef,
-} from '../engine';
+import { actionCard } from '../engine/cards';
+import { courtCard } from '../engine/court';
+import type { Action, AmbitionId, GameState, ResourceType, VariantDef } from '../engine/types';
 
 export const SUIT_SHORT: Record<string, string> = {
   administration: 'Admin',

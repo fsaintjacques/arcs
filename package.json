@@ -4,9 +4,13 @@
   "version": "0.1.0",
   "type": "module",
   "scripts": {
+    "build:wasm": "node scripts/build-wasm.mjs",
+    "predev": "npm run build:wasm",
     "dev": "vite",
+    "prebuild": "npm run build:wasm",
     "build": "tsc -b && vite build",
     "preview": "vite preview",
+    "pretest": "npm run build:wasm",
     "test": "vitest run",
     "sim": "tsx src/sim/cli.ts"
   },
