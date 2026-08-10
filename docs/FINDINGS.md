@@ -598,6 +598,13 @@ their weights say — the under-fighting theme recurs across FINDINGS), so
 that optimism was a subsidy pointing the right way, and removing the noise
 removed the subsidy.
 
+**This claim did not survive a bigger sample.** The Rust port measured the two
+valuations against each other directly, 2400 paired games, and read
++1.8 ± 3.9 — level. See
+[the Rust calibration](#exact-dice-did-not-make-the-1-ply-bot-weaker) below;
+the two rows above differ with a ±16.6 interval on the difference, so the
+6–14 points were never separated from zero.
+
 `greedy` therefore keeps sampling by default (`battles: 'sample'`), with
 `'exact'` as an option; the honest fix is a better-priced evaluation, not a
 worse estimator, and the tuner now exists to look for it. The convolution
@@ -686,6 +693,138 @@ best *action*: ties are everywhere (most moves swing nothing), and an
 identity metric charges the trim for returning a different member of the
 same optimum.
 
+## The Rust harness reproduces the ledger, and disagrees about one thing
+
+The Rust port (`rust/`, R-series milestones) has reached the point where it
+can be checked against this file rather than against unit tests. Parity is
+**statistical only** — clean SplitMix64 seeding, not a replication of
+`mulberry32` — so a seed does not transfer and no two rows compare game for
+game. What compares is a *matchup*: play the same table in Rust, at equal or
+larger sample, and ask whether the reading lands inside the TypeScript row's
+interval.
+
+Nothing was tuned to make a number match. That would have destroyed the only
+thing the exercise is for.
+
+Sixteen comparisons against eight [gauntlet](GAUNTLET.md) rows — each row read
+back at its own sample size and again at 4–10× it. **Fourteen land inside the
+TypeScript row's interval**, and the two that do not are the same Rust
+measurement.
+
+| matchup (3p, candidate vs two anchor copies) | TS row | Rust, same N | Rust, 4–10× N |
+|---|---|---|---|
+| `greedy` vs `anchor-greedy-v0` | +33.8±10.8 (s11) | +25.0±14.9 | +37.6±4.2 |
+| " | +41.3±14.4 (s42) | +48.8±12.9 | " |
+| `greedy battles:'exact'` vs `anchor-greedy-v0` | +27.5±12.6 (s11) | +30.0±13.5 | **+42.4±4.2** |
+| " | +27.5±14.0 (s42) | +40.0±11.7 | " |
+| `mcts` vs `anchor-mcts300-v0` | +6.3±13.2 (s11) | +18.8±13.9 | +1.9±6.1 |
+| `mcts-c` vs `mcts` | +15.0±12.7 (s11) | +18.8±15.2 | +16.2±6.2 |
+| `mcts-c` vs `anchor-mcts300-v0` | +22.5±11.6 (s11) | +17.5±12.4 | +23.1±6.7 |
+| " | +16.3±13.3 (s42) | +27.5±13.6 | " |
+
+Every same-N reading is inside. The bolded 2400-game `battles:'exact'` reading
+sits 0.9 and 2.3 points above the top of the two intervals it is checked
+against — and it is the row this section is named for.
+
+### Exact dice did not make the 1-ply bot weaker
+
+"Exact dice made the 1-ply bot weaker" reported `battles: 'exact'` running
+6–14 points behind the sampler at both seeds. But TS never measured that
+head-to-head; it compared two 240-game rows against a common anchor and read
+the gap between them. Rust can afford the direct comparison, and at 2400
+paired games `greedy battles:'exact'` against `greedy` reads **+1.8 ± 3.9 —
+not separated**. At ten times the sample, on the same deals, the sampler's
+alleged edge is a dead heat pointing very slightly the other way.
+
+The likeliest cause is not a port bug but the arithmetic of the original
+claim. Two 240-game readings carrying ±12.6 and ±10.8 differ with a 95%
+interval of ±16.6 on the difference; a 6.3-point gap between them is not
+evidence of a 6.3-point effect, and "same direction at both seeds" is two
+observations. The proposed mechanism — an argmax over noisy 3-sample estimates
+plays the optimistic tail, and since the evaluation underprices fighting that
+optimism was a subsidy pointing the right way — is a good story and may be
+true at some magnitude. What is not supported is the magnitude. (The R4 dice
+convolution is asserted equal to the TS one to 1e-12, so both engines compute
+the same exact expectation; this is a claim about sample size, not about
+arithmetic.)
+
+`battles: 'sample'` stays the default, for a different reason than before: it
+is the cheaper estimator and now reads level rather than worse, so nothing
+measured argues for changing it. The claim that exact is *weaker* should be
+read as withdrawn pending a four-figure replication.
+
+### The 2-player ladder is stale, not divergent
+
+The ladder table earlier in this file warns that "earlier editions of this
+table are not comparable and should not be cited". The port makes that
+concrete. Same protocol, seed 1, printed deck:
+
+| matchup | this file | Rust |
+|---|---|---|
+| `greedy` vs `random+` (2p) | +100.0±0.0 | +100.0±0.0 |
+| `random+` vs `random` (2p, 2000 games) | +18.0±4.2 | +13.5±4.2 |
+| `mcts` vs `greedy` (2p) | +40.0±14.1 | +15.4±8.9 (480 games) |
+| `greedy` vs `mc` (2p) | +3.3±15.4 | +31.7±11.6 (240 games) |
+| `greedy` in the `greedy`/`mc`/`random` field (3p) | +14.4±13.5 | +45.0±10.9 |
+
+The `random+` row is not a disagreement: two independent estimates each
+carrying ±4.2 differ by 4.5 against a ±5.9 interval on the difference.
+
+The other three are, and they share one cause. Those rows predate the M2
+evaluation, which moved `greedy` **+33.8** against the frozen anchor while
+moving `mcts` only **+6.3** — so every reading that puts the evaluation tier
+against the search tier has moved since, in the direction Rust shows. Re-run
+the 2-player `mcts` vs `greedy` row in Rust **with the weights it was measured
+under** — `anchor-mcts300-v0` against `anchor-greedy-v0`, 480 paired games:
+
+| | win % | mean Power | cities | paired difference |
+|---|---|---|---|---|
+| `anchor-mcts300-v0` | 66.0 | 27.0 | 4.2 | **+32.1 ±8.4** |
+| `anchor-greedy-v0` | 34.0 | 24.7 | 4.4 | |
+
+That is inside the TS row's interval, and it reproduces both of the row's
+*secondary* statistics unprompted: this file records `mcts` ahead on mean
+Power (28.2 to 24.9) and `greedy` building more cities (4.4 to 4.2) "in every
+single run". A port that had the rules subtly wrong would not land three
+independent numbers at once. `mc` and the 3-player field have the same shape —
+both favour the evaluation tier by ~30 points more than the stale row — and
+the same explanation is the leading hypothesis, though no frozen `mc` anchor
+exists to prove it the same way.
+
+What this does *not* explain away, and stays on the open list: R5 fixed a real
+`determinize` bug (TS worlds were short every `revealed` card), which
+legitimately changes every search agent's behaviour, so the port's search
+agents were never expected to be move-for-move identical to TS. The evidence
+that the change is small is the search-vs-search column above — `mcts-c` vs
+`mcts`, the purest search-tier ablation in the ledger, reproduces at +16.2
+against TS's +15.0.
+
+### Throughput: the reason for the port
+
+Same machine (10 cores), 3-player tables, both engines measured rather than
+quoted. TS via `npx tsx src/sim/cli.ts --workers 1`; Rust via
+`cargo test -p arcs-sim --release --test bench -- --ignored`.
+
+| table | TS games/s | Rust games/s | speedup | Rust, 9 workers | pool speedup |
+|---|---|---|---|---|---|
+| `random` ×3 | 1200 | 17477 | **14.6×** | 93027 | 5.3× |
+| `greedy` ×3 | 17.2 | 117 | **6.8×** | 828 | 7.1× |
+| `mcts` ×3 | 0.34 | 1.5 | **4.4×** | 4.9 | 3.3× |
+| `mcts2` ×3 | — | 0.6 | — | 2.7 | 4.1× |
+
+Per-decision thinking time, sampled serially by the gauntlet as the budget
+gate requires: `greedy` 0.02–0.05 ms against the TS ledger's 0.2–1.3, `mcts`
+2.3–2.6 ms against 9.6–11.4.
+
+The pool speedups (3.3–7.1× on nine workers) are the same shape the TS pool
+showed, and for the same reason: a batch of games is embarrassingly parallel,
+and what caps it is memory bandwidth and core sharing rather than anything in
+the harness. The column that matters for the lab is the serial one. Every
+2400-game gauntlet row in this section cost under a minute, and the 960-game
+search rows cost minutes rather than hours — "batch size is the binding
+constraint" is no longer true below the search tier, and is merely painful
+above it.
+
 ## Open questions
 
 - **Ambition timing, the initiative half.** The `declarableLead` term now
@@ -699,11 +838,16 @@ same optimum.
   and the scarcity prices, which are hand-guessed — are unfitted. A CEM run
   over paired seeds is the next step, and the worker pool makes its
   population evaluations affordable.
-- **Batch size — still the binding constraint.** Pairing removed the bias but not
-  the spread, so the 120-game rows still carry ±15 to ±17. The engine runs ~1000
-  random games a second and `greedy` about 35, so 2000-game batches are minutes
-  for the cheap agents and the reason not to run them is `mcts` at 3s a game.
-  Making the search cheaper is therefore also a *measurement* improvement.
+- **Batch size — still the binding constraint, above the search tier.** Pairing
+  removed the bias but not the spread, so the 120-game rows still carry ±15 to
+  ±17. On the TypeScript engine that was the whole story: ~1200 random games a
+  second, `greedy` at 17, `mcts` at 3s a game. The Rust engine takes those to
+  17k / 117 / 1.5 per second serial, so four-figure batches of the evaluation
+  tier are now seconds — but a 2400-game `mcts` row is still an hour of one
+  core, and making the search cheaper is still a *measurement* improvement.
+- **Re-run the 2-player ladder.** Its rows predate the M2 evaluation and the
+  Rust calibration shows three of them have moved by ~30 points for that reason
+  alone. They are cheap to redo now and nobody has.
 - **An abilities-off switch.** The claim that a complete Court is what let `mcts`
   separate is untested, because there is no way to run the same batch with the
   abilities disabled. A variant flag that keeps the card data but drops
