@@ -1,0 +1,21 @@
+[package]
+name = "arcs-cli"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "Command-line front end for the Arcs simulator and strength gauntlet"
+
+[[bin]]
+name = "arcs"
+path = "src/main.rs"
+
+[dependencies]
+arcs-agents = { path = "../arcs-agents" }
+arcs-engine = { path = "../arcs-engine" }
+arcs-sim = { path = "../arcs-sim" }
+clap = { version = "4", features = ["derive"] }
+serde_json = "1"
+
+[lints]
+workspace = true
